@@ -1,0 +1,3 @@
+[submodule "mozidbedit"]
+	path = mozidbedit
+	url = git@github.com:hauck-jvsh/moz-idb-edit.git
