@@ -14,6 +14,8 @@ import base64
 import sys
 import re
 import mozidbedit.mozidbedit.mozidb as mozidb
+from parserWhatsappweb import loadDb,loadDbFirefox
+
 
 def strings(content,min=4):
     return re.findall(b"[^\x00-\x1F\x7F-\xFF]{"+str(min).encode("utf-8")+b",}", content)
@@ -42,27 +44,7 @@ def AESDecrypt(key, ciphertext, iv):
 
 
 
-def loadDbFirefox():
-    conn=mozidb.IndexedDB("G:\\of2203526-2024\\user7753_firefox\\s4l1w1pt.default-esr\\storage\\default\https+++web.whatsapp.com^firstPartyDomain=whatsapp.com\\idb\\2181795718meogdaerlo-ts.sqlite")
-    return mozidb.IDBObjectWrapper(conn)
 
-
-def loadDb():
-
-    # assuming command line arguments are paths to the .leveldb and .blob folders
-    #leveldb_folder_path = "C:\\Users\\HAUCK\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
-    #blob_folder_path = "C:\\Users\\HAUCK\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
-    #leveldb_folder_path = "IndexedDB\\file__0.indexeddb.leveldb"
-    #blob_folder_path = "IndexedDB\\file__0.indexeddb.blob"
-    blob_folder_path = None
-    leveldb_folder_path = "G:\\of2203526-2024\\user7708_chrome\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
-    
-    #leveldb_folder_path="F:\\Downloads\\volatility3-2.5.2\\caso_dip\\AppData\\Local\\Google\\Chrome\\User Data\\Profile 4\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
-    #blob_folder_path="F:\\Downloads\\volatility3-2.5.2\\caso_dip\\AppData\\Local\\Google\\Chrome\\User Data\\Profile 4\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
-    print("ola1",leveldb_folder_path)
-    # open the indexedDB:
-    indexedDB = ccl_chromium_indexeddb.WrappedIndexDB(leveldb_folder_path, blob_folder_path)
-    return indexedDB
     
 def printTables(db):
     for table in db.object_store_names:
@@ -70,7 +52,7 @@ def printTables(db):
 
 def decriptyFiles(indexedDB,hashes):
     
-    db_model=indexedDB
+    db_model=indexedDB["model-storage"]
     
     
     print(len(hashes))
@@ -174,7 +156,9 @@ def decriptyFiles(indexedDB,hashes):
                             temp_ext=ext
                         print("Tipo",info,temp_ext)                         
                         if decrypt(hashes[encFilehash.hex()],mediaKey,info, pasta2+"/"+encFilehash.hex()+"."+ temp_ext,filehash.hex()):
+                            print(pasta2+"/"+encFilehash.hex()+"."+ temp_ext)
                             found.add(filehash.hex())
+                            found.add(encFilehash.hex())
                             del hashes[encFilehash.hex()]
                             break
                                                         
@@ -191,13 +175,14 @@ def decriptyFiles(indexedDB,hashes):
                     print("Erro",nerros,data)
             else:
                 search.add(encFilehash.hex())
+          
         
     print("Erros",nerros)
                         
     print("sem refencia",len(hashes.keys()))
 
     
-
+    print("7F02B9586DF9185BC1BA267AF28B4BE0BFCA4696127B42924AEF16CCE498123A".lower() in search)
     open("hashes.txt","w").write(str(search.difference(found)))
             
            
@@ -275,113 +260,33 @@ def decrypt(fileName, mediaKey, mediaType, output,decHash=None):
 
     return True
 
+pasta="C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\files"
+pasta2="C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\dec_files"
 
-pasta="G:\\of2203526-2024\\files"
-pasta2="G:\\of2203526-2024\\files_dec"
-#pasta="../whatsapp_files"
-#pasta2="../dec_files"
-import os
-import fnmatch
-enc_files={}
-print("teste")
-for root, dir, files in os.walk(pasta):
-        print(root)
-        for item in fnmatch.filter(files, "*"):
-            sha256Hash = hashlib.sha256(open(pasta+"/"+item,"rb").read())
-            sha256Hashed = sha256Hash.hexdigest()
-            #print(sha256Hashed)
-            enc_files[sha256Hashed]=pasta+"/"+item
-
-indexedDB=loadDbFirefox()
-decriptyFiles(indexedDB,enc_files)
-
-
-# database="/mnt/c/Users/HAUCK/AppData/Local/Google/Chrome/User Data/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb"
-# #print(enc_files)
-# for root, dir, files in os.walk(database):
-#         for item in fnmatch.filter(fil es, "*"):
-#                 file=open(database+"/"+item,"rb")
-#                 try:
-#                     data=file.read()
-#                 except:
-#                      continue
-#                 #print("ola",file.name)     
-               
-#                 if data.find(b'\xed\x53\x5a\xe5\x98\xe7\x68\x39\x9d\x0f\xc8\x3d\xc0\x13\x9d\xf4\x2d\x7b\x6c\x88\xc6\xb8\xbe\xb8\xca\xe4\x14\xef\x1d\xd7\x51\x99')>0:
-#                      print(file.name)
-                
-#                 for enc_file in enc_files.keys():
-#                     pos=0
-#                     while pos>=0:
-#                         pos=data.find(enc_file.encode('utf-8'),pos+1)
-#                         posKey=data.find(b"Key\"",pos)
-#                         fimKey=posKey+5+0x2c
-#                         if data.find(b"audio",pos,posKey)>0:
-#                             mtype="audio"
-#                         elif data.find(b"image",pos,posKey)>0 or data.find(b"jpeg",pos,posKey)>0:
-#                             mtype="image"
-#                         elif data.find(b"video",pos,posKey)>0:
-#                             mtype="video"
-#                         else:
-#                             mtype="document"
-#                         outfile=pasta2+"/"+enc_file+"."+ extension[mtype]
-#                         if pos>0 and  posKey>0 and posKey-pos<500 and not os.path.isfile(outfile):
-#                             mediaKey=base64.b64decode(data[posKey+5:fimKey])
-                            
-#                             print(file.name,enc_file,data[posKey+5:fimKey], mediaKey.hex(),mtype,)
-#                             try:
-#                                 if decrypt(pasta+"/"+enc_files[enc_file],mediaKey, mtype,pasta2+"/"+enc_file+"."+ extension[mtype]):
-#                                     print("Decrypted (hopefully)")
-#                                     break
-#                             except:
-#                                 print("Erro")
-                        
+#pasta2="G:\\oficio-2390369-2024\\cache_chrome\\files_dec"
+def main():
+    
+   
+    import os
+    import fnmatch
+    enc_files={}
+    print("teste")
+    for root, dir, files in os.walk(pasta):
+            print(root)
+            for item in fnmatch.filter(files, "*"):
+                try:
+                    sha256Hash = hashlib.sha256(open(pasta+"/"+item,"rb").read())
+                    sha256Hashed = sha256Hash.hexdigest()
+                    #print(sha256Hashed)
+                    enc_files[sha256Hashed]=pasta+"/"+item
+                except:
+                    print("erro",item)
+    
+    #indexedDB=loadDbFirefox("G:\\of2203526-2024\\mat_2317_brownsers\\"+usuario+"\\"+profile+"\\storage\\default\\https+++web.whatsapp.com^firstPartyDomain=whatsapp.com\\idb")
+    #indexedDB=loadDb("G:\\of2203526-2024\\mat_2317_brownsers\\"+usuario+"\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb",None)
+    indexedDB=loadDb("C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb","C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob")
+    decriptyFiles(indexedDB,enc_files)
+if __name__ == "__main__":
+    main()
 
 
-
-# exit()
-# if __name__ == "__main__":
-#     from optparse import OptionParser
-#     parser = OptionParser(version='1')
-#     parser.add_option(
-#         '-m',
-#         '--mime',
-#         dest='mediaType',
-#         default='image',
-#         help="media type of the encrypted file. Default 'image'"
-#     )
-#     parser.add_option(
-#         '-b',
-#         '--base64',
-#         dest='base64Key',
-#         default=None,
-#         help='media key in Base64'
-#     )
-#     parser.add_option(
-#         '-j',
-#         '--hex',
-#         dest='hexKey',
-#         default=None,
-#         help='media key in Hex'
-#     )
-#     parser.add_option(
-#         '-o',
-#         '--output',
-#         dest='output',
-#         default=None,
-#         help='path for the plaintext'
-#     )
-#     (options, args) = parser.parse_args()
-
-#     fileName = args[0]
-#     if options.base64Key is not None:
-#         mediaKey = base64.b64decode(options.base64Key)
-#     elif options.hexKey is not None:
-#         mediaKey = bytes.fromhex(options.hexKey)
-#     else:
-#         print("You must specify the key in either "
-#               "Base64 or Hex.\nUsage: decrypt.py -h")
-#         sys.exit(1)
-
-#     if decrypt(fileName, mediaKey, options.mediaType, options.output):
-#         print("Decrypted (hopefully)")

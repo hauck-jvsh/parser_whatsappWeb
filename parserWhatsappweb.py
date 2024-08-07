@@ -8,6 +8,46 @@ import sys
 import os
 from datetime import datetime
 import mozidbedit.mozidbedit.mozidb as mozidb
+from pathlib import Path
+import blackboxprotobuf
+
+
+# https://mazzo.li/posts/whatsapp-backup.html
+# message WhatsAppMessage {
+#   string body = 1;
+#   string caption = 2;
+#   string loc = 4;
+#   double lng = 5;
+#   double lat = 7;
+#   int32 paymentAmount1000 = 8;
+#   string paymentNoteMsgBody = 9;
+#   string canonicalUrl = 10;
+#   string matchedText = 11;
+#   string title = 12;
+#   string description = 13;
+#   bytes futureproofBuffer = 14;
+# }
+
+# message FullWhatsAppMessage {
+#   WhatsAppMessage currentMsg = 1;
+#   WhatsAppMessage quotedMsg = 1;
+# }
+
+
+
+
+type_whatsappmsg= {'1': {'type': 'str', 'name': 'body'},
+                  '2': {'type': 'str', 'name': 'caption'},
+                  '4': {'type': 'str', 'name': 'loc'},
+                  '5': {'type': 'double', 'name': 'lng'},
+                  '7': {'type': 'double', 'name': 'lat'},
+                  '11': {'type': 'str', 'name': 'matchedText'},
+                  '12': {'type': 'str', 'name': 'title'}, 
+                  '13': {'type': 'str', 'name': 'description'}, 
+                  '21': {'type': 'bytes', 'name': ''}}
+type_prot={'1': {'type': 'message', 'message_typedef': type_whatsappmsg, 
+                  'name': 'currentMsg'}, 
+           '2': {'type': 'message', 'message_typedef': type_whatsappmsg, 'name': 'quotedMsg '}}
 
 class TagHtml:
     def __init__(self, tagname):
@@ -61,22 +101,33 @@ def AESUnpad(s):
     return s[:-ord(s[len(s)-1:])]
 
 
-def AESDecrypt(key, ciphertext, iv):
+def AESDecrypt(key, ciphertext, iv:bytes):
+    #print(key,iv)
     cipher = AES.new(key, AES.MODE_CBC, iv)
     plaintext = cipher.decrypt(ciphertext)
     return AESUnpad(plaintext)
 
-def loadDb(leveldb_folder_path, blob_folder_path):
+def loadDb(leveldb_folder_path:str, blob_folder_path=None):
 
     
     #print("ola1")
     # open the indexedDB:
     indexedDB = ccl_chromium_indexeddb.WrappedIndexDB(leveldb_folder_path, blob_folder_path)
+    for db in indexedDB.database_ids:
+        print(db)
     return indexedDB
     
-def loadDbFirefox():
-    conn=mozidb.IndexedDB("G:\\of2203526-2024\\user7753_firefox\\s4l1w1pt.default-esr\\storage\\default\https+++web.whatsapp.com^firstPartyDomain=whatsapp.com\\idb\\2181795718meogdaerlo-ts.sqlite")
-    return mozidb.IDBObjectWrapper(conn)
+def loadDbFirefox(folder):
+    print(folder)
+    databases={}
+    for root, dir, files in os.walk(folder):
+        for item in fnmatch.filter(files, "*.sqlite"):
+            dbFile=folder+"\\"+item
+            #print(dbFile)
+            conn=mozidb.IndexedDB(dbFile)
+            databases[conn.get_name()]=mozidb.IDBObjectWrapper(conn)
+            print(conn.get_name())
+    return databases
 
 
 
@@ -86,9 +137,9 @@ def getValue(dict,key):
     except:
         return None
 
-def parseChats(indexedDB,aesKey=None):
+def parseChats(indexedDB,aesKey:bytes|None=None):
    
-    db_model=indexedDB
+    db_model=indexedDB["model-storage"]
     chats={}
     contacts={}
     for record in db_model["chat"].iterate_records():
@@ -97,7 +148,7 @@ def parseChats(indexedDB,aesKey=None):
          chats[record.value["id"]]={
              "id":record.value["id"],
              "name":getValue(record.value,"name"),
-             "chat":[]
+             "chat": {}
          }
          contacts[record.value["id"].split("@")[0]]={
              "id":record.value["id"],
@@ -163,7 +214,6 @@ def parseChats(indexedDB,aesKey=None):
     
     messages=db_model["message"]
     
-    #aeskey=b"\x01\x0B\x10\x06\x10\x11\xA0\x74\x73\x48\xEA\x17\x52\xD7\x84\x28\xD0\xBF\xD3\xC4\xAF\x0D\x27\xC0\x42\x20\x91\xEE\x64\xDE\xA8\xE4\x52\xCA\xB4\xCA\x5B\x2C\xB4\x22\x2E\x5D\xAF\x01\x3D\x1B\xDF\x71\xBD\xAB\xCE\x7B\xB8\x75\x29\x27\x4F\x34\x7B\x02\x7B\x02\xA0\x00\x00\x00"
     for record in messages.iterate_records():
         if record.value is None or "t" not in record.value:
             continue
@@ -200,19 +250,30 @@ def parseChats(indexedDB,aesKey=None):
             #input()
             message["decData"]=None
             if aesKey is not None:
-                message["decData"]=AESDecrypt(aesKey,message["encData"]["_data"],message["encData"]["iv"])
+                message["decData"]=AESDecrypt(aesKey,message["encData"]["_data"],bytes(message["encData"]["iv"]))
+                message2,type=blackboxprotobuf.decode_message(message["decData"],type_prot)
+                message["decData"]=message2
+               
 
         if "author" in record.value:
             message["author"]= getValue(record.value["author"],"_serialized")
         
         if chat_id in chats:
-            chats[chat_id]["chat"].append(message)
+            chats[chat_id]["chat"][str(record.value["rowId"])]=message
         else:
             chats[chat_id]= {
                 "id":chat_id,
                 "name":chat_id,
-                "chat":[message]
+                "chat":{str(record.value["rowId"]): message}
             }
+    for chat in chats.values():
+      
+        try:
+            chat["chat"]=list(chat["chat"].values())
+        except:
+            chat["chat"]=[]
+
+            
     return chats,contacts
 
 def getImageResourceAsEmbedded(resource):
@@ -380,7 +441,7 @@ def printAttachment(out,  message) :
 
         else:
             texto=str(getThumbTag(message, "attachImg"))
-            if(message["filename"] is not None):
+            if(message["filename"] is not None and isinstance(message["filename"],str)):
                 texto=message["filename"]+"<br/>"+texto
             out.write(texto)
         
@@ -467,7 +528,10 @@ def printMessage(out, message,contacts):
       
 
         if ("decData" in message and message["decData"] is not None):
-            out.write(message["decData"])
+            try:
+                out.write(message["decData"]["currentMsg"]["body"])
+            except:
+                out.write(str(message["decData"]))
         elif "encData" in message and  message["encData"] is not None:
             out.write("Conteudo cifrado")
 
@@ -555,7 +619,7 @@ def createContactPage(pasta,contacts):
     contact_file.write(b"</table></body></html>\n")
     contact_file.close()
 
-def createReports(pastaRelatorios,chats,contacts):
+def createReports(pastaAnexos,pastaRelatorios,chats,contacts):
     
     hashes={}
     for root, dir, files in os.walk(pastaAnexos):
@@ -572,24 +636,31 @@ def createReports(pastaRelatorios,chats,contacts):
     for name,chat in chats.items():
         createChatHTML(pastaRelatorios,chat,contacts,hashes)
 
-# assuming command line arguments are paths to the .leveldb and .blob folders
+def main():
+    # assuming command line arguments are paths to the .leveldb and .blob folders
+        
+    #leveldb_folder_path = "C:\\Users\\HAUCK\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
+    #blob_folder_path = "C:\\Users\\HAUCK\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
+    #leveldb_folder_path="D:\\mem_whatsapp\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
+    #blob_folder_path="D:\\mem_whatsapp\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
+    #leveldb_folder_path="F:\\Downloads\\volatility3-2.5.2\\caso_dip\\AppData\\Local\\Google\\Chrome\\User Data\\Profile 4\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
+    #blob_folder_path="F:\\Downloads\\volatility3-2.5.2\\caso_dip\\AppData\\Local\\Google\\Chrome\\User Data\\Profile 4\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
+    #blob_folder_path = None
+    #leveldb_folder_path = "G:\\of2203526-2024\\user12528_chrome\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
+   
+
+    pastaAnexos="C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\dec_files"
+
+    pastaRelatorios="C:\\Users\\HAUCK\\git\\whatsappWebService\\relatorio"
+    Path(pastaRelatorios).mkdir(parents=True, exist_ok=True)
+
+    #indexedDB=loadDb("G:\\of2203526-2024\\mat_2317_brownsers\\"+usuario+"\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb",None)
+    #indexedDB=loadDbFirefox("G:\\of2203526-2024\\mat_2317_brownsers\\"+usuario+"\\"+profile+"\\storage\\default\\https+++web.whatsapp.com^firstPartyDomain=whatsapp.com\\idb")
+
+    indexedDB=loadDb("C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb","C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob")
     
-#leveldb_folder_path = "C:\\Users\\HAUCK\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
-#blob_folder_path = "C:\\Users\\HAUCK\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
-#leveldb_folder_path="D:\\mem_whatsapp\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
-#blob_folder_path="D:\\mem_whatsapp\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
-#leveldb_folder_path="F:\\Downloads\\volatility3-2.5.2\\caso_dip\\AppData\\Local\\Google\\Chrome\\User Data\\Profile 4\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
-#blob_folder_path="F:\\Downloads\\volatility3-2.5.2\\caso_dip\\AppData\\Local\\Google\\Chrome\\User Data\\Profile 4\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
-blob_folder_path = None
-#leveldb_folder_path = "G:\\of2203526-2024\\user12528_chrome\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
+    chats,contatcts=parseChats(indexedDB,b"\xdc\x26\x16\x16\xff\xba\x4a\x97\x86\x6e\x85\x53\x03\x95\xa0\xc9")
+    createReports(pastaAnexos,pastaRelatorios,chats,contatcts)
 
-pastaAnexos="G:\\of2203526-2024\\files_dec"
-
-pastaRelatorios="G:\\of2203526-2024\\user7753_firefox\\relatorios"
-
-#indexedDB=loadDb(leveldb_folder_path,blob_folder_path)
-indexedDB=loadDbFirefox()
-
-chats,contatcts=parseChats(indexedDB)
-createReports(pastaRelatorios,chats,contatcts)
-
+if __name__ == "__main__":
+    main()
