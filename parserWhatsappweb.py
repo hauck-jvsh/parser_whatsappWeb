@@ -10,6 +10,7 @@ from datetime import datetime
 import mozidbedit.mozidbedit.mozidb as mozidb
 from pathlib import Path
 import blackboxprotobuf
+import filetype
 
 
 # https://mazzo.li/posts/whatsapp-backup.html
@@ -38,6 +39,7 @@ import blackboxprotobuf
 
 type_whatsappmsg= {'1': {'type': 'str', 'name': 'body'},
                   '2': {'type': 'str', 'name': 'caption'},
+                  '3': {'type': 'str', 'name': 'mediaText'},
                   '4': {'type': 'str', 'name': 'loc'},
                   '5': {'type': 'double', 'name': 'lng'},
                   '7': {'type': 'double', 'name': 'lat'},
@@ -47,7 +49,7 @@ type_whatsappmsg= {'1': {'type': 'str', 'name': 'body'},
                   '21': {'type': 'bytes', 'name': ''}}
 type_prot={'1': {'type': 'message', 'message_typedef': type_whatsappmsg, 
                   'name': 'currentMsg'}, 
-           '2': {'type': 'message', 'message_typedef': type_whatsappmsg, 'name': 'quotedMsg '}}
+           '2': {'type': 'message', 'message_typedef': type_whatsappmsg, 'name': 'quotedMsg'}}
 
 class TagHtml:
     def __init__(self, tagname):
@@ -136,6 +138,58 @@ def getValue(dict,key):
         return dict[key]
     except:
         return None
+    
+
+def getMessage(rawData,aesKey,quoted=False):
+    chat_id=rawData["id"].split("_")[1]
+    message={
+        "chat_id":chat_id,
+        "quoteMsg":quoted,
+        "isForwarded": rawData["isForwarded"] if "isForwarded" in rawData else False,
+        "mediaHash":getValue(rawData,"filehash"),
+        "filename":getValue(rawData,"filename"),
+        "encMediaHash":getValue(rawData,"encFilehash"),
+        "mediaKey":getValue(rawData,"mediaKey"),
+        "mimetype":getValue(rawData,"mimetype"),
+        "type":getValue(rawData,"type"),
+        "timeStamp": None if quoted else rawData["t"],
+        "to": rawData["to"]["_serialized"] if getValue(rawData,"to") is not None else None,
+        "from": rawData["from"]["_serialized"] if quoted else rawData["from"],
+        "thumb":getValue(rawData,"thumbnail"),
+        "encThumbHash":getValue(rawData,"thumbnailEncSha256"),
+        "thumbHash":getValue(rawData,"thumbnailSha256"),
+        "url":getValue(rawData,"deprecatedMms3Url"),
+                }
+  
+    
+    if message["from"].find(chat_id)>=0 or chat_id.find(message["from"])>=0:
+        message["isFromMe"]=False
+    else:
+        message["isFromMe"]=True
+    
+    if "msgRowOpaqueData" in rawData:
+        message["encData"]=rawData["msgRowOpaqueData"]
+        #print(message["encData"]["_data"].hex())
+        #print(bytes(message["encData"]["iv"]).hex())
+        #input()
+        message["decData"]=None
+        if aesKey is not None and not quoted:
+            message["decData"]=AESDecrypt(aesKey,message["encData"]["_data"],bytes(message["encData"]["iv"]))
+            message2,type=blackboxprotobuf.decode_message(message["decData"],type_prot)
+            message["decData"]=message2
+            
+
+    if "author" in rawData:
+        message["author"]= getValue(rawData["author"],"_serialized")
+
+
+    if  "quotedMsg" in rawData and "from" in rawData["quotedMsg"]:
+        rawData["quotedMsg"]["id"]=rawData["id"]        
+        message["quotedMsg"]=getMessage(rawData["quotedMsg"],aesKey,True)
+        message["quotedMsg"]["decData"]=message["decData"]
+
+    return message
+    
 
 def parseChats(indexedDB,aesKey:bytes|None=None):
    
@@ -217,47 +271,9 @@ def parseChats(indexedDB,aesKey:bytes|None=None):
     for record in messages.iterate_records():
         if record.value is None or "t" not in record.value:
             continue
+        message=getMessage(record.value,aesKey)
+        chat_id=message["chat_id"]
 
-
-        chat_id=record.value["id"].split("_")[1]
-        message={
-            "mediaHash":getValue(record.value,"filehash"),
-            "filename":getValue(record.value,"filename"),
-            "encMediaHash":getValue(record.value,"encFilehash"),
-            "mediaKey":getValue(record.value,"mediaKey"),
-            "mimetype":getValue(record.value,"mimetype"),
-            "type":getValue(record.value,"type"),
-            "timeStamp":record.value["t"],
-            "to": record.value["to"]["_serialized"] if getValue(record.value,"to") is not None else None,
-            "from":record.value["from"],
-            "thumb":getValue(record.value,"thumbnail"),
-            "encThumbHash":getValue(record.value,"thumbnailEncSha256"),
-            "thumbHash":getValue(record.value,"thumbnailSha256"),
-            "url":getValue(record.value,"deprecatedMms3Url"),
-
-
-                 }
-        
-        if message["from"].find(chat_id)>=0 or chat_id.find(message["from"])>=0:
-            message["isFromMe"]=False
-        else:
-            message["isFromMe"]=True
-        
-        if "msgRowOpaqueData" in record.value:
-            message["encData"]=record.value["msgRowOpaqueData"]
-            #print(message["encData"]["_data"].hex())
-            #print(bytes(message["encData"]["iv"]).hex())
-            #input()
-            message["decData"]=None
-            if aesKey is not None:
-                message["decData"]=AESDecrypt(aesKey,message["encData"]["_data"],bytes(message["encData"]["iv"]))
-                message2,type=blackboxprotobuf.decode_message(message["decData"],type_prot)
-                message["decData"]=message2
-               
-
-        if "author" in record.value:
-            message["author"]= getValue(record.value["author"],"_serialized")
-        
         if chat_id in chats:
             chats[chat_id]["chat"][str(record.value["rowId"])]=message
         else:
@@ -266,12 +282,17 @@ def parseChats(indexedDB,aesKey:bytes|None=None):
                 "name":chat_id,
                 "chat":{str(record.value["rowId"]): message}
             }
+        
+                
+
+        
     for chat in chats.values():
       
         try:
             chat["chat"]=list(chat["chat"].values())
         except:
             chat["chat"]=[]
+            
 
             
     return chats,contacts
@@ -317,18 +338,33 @@ def printMessageFileHeader(out, title, avatar):
                 + "<div id=\"conversation\">\n" 
                 + "<br/><br/><br/>")
 
-def getThumbTag(m, classnotfound):
+def getThumbTag(m:any, classnotfound:str,thumbBody:bool=False):
         thumb = m["thumb"]
-
         
-
+        if thumbBody:
+            try:
+                
+                decData=m["decData"]["quotedMsg" if m["quoteMsg"] else "currentMsg"]
+                if len(decData["body"])>0:
+                    thumb_new=base64.b64decode(decData["body"])
+                    if "image" in filetype.guess_mime(thumb_new):
+                        decData["body"]="thumb"
+                        if thumb is None:
+                            m["thumb"]=thumb=thumb_new
+            except:
+                thumb=None
+            
        
         if (thumb is not None):
-            #print(thumb)
             img = TagHtml("img")
             img.set_attribute("class", "thumb")
+            if b'PNG' in thumb:
+                data_type="image/png"
+            else:
+                data_type="image/jpg"
+
             img.set_attribute("src",
-                    "data:image/jpg;base64," + base64.b64encode(thumb).decode("utf-8") )
+                    "data:"+data_type+";base64," + base64.b64encode(thumb).decode("utf-8") )
         else:
             img = TagHtml("div")
             img.set_attribute("class", classnotfound)
@@ -354,7 +390,7 @@ def printImage(out, message, isLink=False):
             #link.set_attribute("onclick", "app.open('hash:" + message["mediaHash"] + "')")
             link.set_attribute("href",getImageResourceAsEmbedded(message["mediaLink"]) )
             
-            img = getThumbTag(message, "imageImg")
+            img = getThumbTag(message, "imageImg",True)
 
             img.set_attribute("title", title)
             link.get_inner().append(img)
@@ -363,7 +399,7 @@ def printImage(out, message, isLink=False):
             out.write(str(div))
 
         elif not isLink:
-            out.write(str(getThumbTag(message, "imageImg")))
+            out.write(str(getThumbTag(message, "imageImg",True)))
         
         out.write("<br/>")
 
@@ -388,14 +424,18 @@ def printVideo(out,message):
             link = TagHtml("a")
             link.set_attribute("onclick", "app.open('hash:" + message["mediaHash"] + "')")
 
-            img = getThumbTag(message, "videoImg")
-
-            reportSource = message["mediaLink"]
-            
-
+            img = getThumbTag(message, "videoImg",True)
+           
+            try:
+                reportSource = getImageResourceAsEmbedded(message["mediaLink"],message["mimetype"])
+                img.set_attribute("data-src1", reportSource)
+            except:
+                pass
+                
             img.set_attribute("title", "Video")
-            img.set_attribute("data-src1", reportSource)
+           
             img.set_attribute("class", img.get_attribute("class") + " iped-video")
+           
 
             link.get_inner().append(img)
 
@@ -403,7 +443,7 @@ def printVideo(out,message):
 
 
             out.write(str(div))
-            out.write("<br/>")
+            out.write("\n<br/>")
 
         else:
             out.write(str(getThumbTag(message, "videoImg")))
@@ -431,7 +471,7 @@ def printAttachment(out,  message) :
             if(message["filename"] is not None):
                 link.get_inner().append(message["filename"]+"<br/>")
 
-            img = getThumbTag(message, "attachImg")
+            img = getThumbTag(message, "attachImg",True)
 
             img.set_attribute("title", "Attachment")
             link.get_inner().append(img)
@@ -440,7 +480,7 @@ def printAttachment(out,  message) :
             out.write(str(div))
 
         else:
-            texto=str(getThumbTag(message, "attachImg"))
+            texto=str(getThumbTag(message, "attachImg",True))
             if(message["filename"] is not None and isinstance(message["filename"],str)):
                 texto=message["filename"]+"<br/>"+texto
             out.write(texto)
@@ -488,7 +528,11 @@ def printAudio( out,  message):
 
 def printMessage(out, message,contacts):
 
-        out.write("<div class=\"linha\" id=\"" + str(message["timeStamp"]) + "\">")
+        out.write("\n<div class=\"linha\" id=\"" + str(message["timeStamp"]) + "\">")
+        try:
+            decData=message["decData"]["quotedMsg" if message["quoteMsg"] else "currentMsg"]
+        except:
+            decData=None
         if (message["isFromMe"]):
             out.write("<div class=\"bbr\"><div class=\"outgoing to\">")
         else:
@@ -501,6 +545,7 @@ def printMessage(out, message,contacts):
         else:
             contact = message["from"]
         
+        
 
         if (contact is not None):
             if contact.split("@")[0] in contacts and isinstance(contacts[contact.split("@")[0]]["name"],str):
@@ -508,6 +553,17 @@ def printMessage(out, message,contacts):
                 #print(contact)
             out.write("<span style=\"font-family: Arial; color: #b4c74b;\">" 
                     + contact + "</span><br/>")
+           
+            if message["isForwarded"]:
+                out.write("<span style=\"font-family: Arial;font-style:italic; color: #8696a0;\">")
+                out.write('<svg viewBox="0 0 16 16" height="16" width="16" preserveAspectRatio="xMidYMid meet" class="" version="1.1"><title>forwarded</title><path d="M9.51866667,3.87533333 C9.51866667,3.39333333 10.1006667,3.152 10.4406667,3.49266667 L14.4706667,7.52666667 C14.682,7.738 14.682,8.07933333 14.4706667,8.29066667 L10.4406667,12.3246667 C10.1006667,12.6646667 9.51866667,12.424 9.51866667,11.942 L9.51866667,10.1206667 C6.12133333,10.1206667 3.63266667,11.0906667 1.78266667,13.1946667 C1.61866667,13.3806667 1.31466667,13.2226667 1.38133333,12.984 C2.33466667,9.53533333 4.66466667,6.31466667 9.51866667,5.62066667 L9.51866667,3.87533333 Z" fill="currentColor"></path></svg>')
+                out.write("Encaminhada</span><br/>")
+        
+        
+        if "quotedMsg" in message:
+            out.write("<div style='zoom: 0.7;'>quoted msg")
+            printMessage(out,message["quotedMsg"],contacts)
+            out.write("</div>")
         
         if (message["type"] is not None):
             out.write(message["type"] + "<br>")
@@ -517,21 +573,26 @@ def printMessage(out, message,contacts):
                 printVideo(out, message)
             elif (message["mimetype"].startswith("image")):
                 printImage(out, message)
-
             elif (message["mimetype"].startswith("audio")):
                 printAudio(out, message)
             elif (message["mimetype"].startswith("link")):
                 printImage(out, message,True)
             else:
                 printAttachment(out, message)
+            try:
+                out.write(["mediaText"])
+            except:
+                pass
                 
       
 
-        if ("decData" in message and message["decData"] is not None):
+        if (decData is not None):
             try:
-                out.write(message["decData"]["currentMsg"]["body"])
+                out.write(decData["body"])
+                if "caption" in decData:
+                    out.write(decData["caption"])
             except:
-                out.write(str(message["decData"]))
+                out.write(str(decData))
         elif "encData" in message and  message["encData"] is not None:
             out.write("Conteudo cifrado")
 
@@ -539,10 +600,10 @@ def printMessage(out, message,contacts):
         out.write("<br/>")
 
 
-        out.write("<span class=\"time\">")
-        out.write(datetime.fromtimestamp(message["timeStamp"]).isoformat() + " &nbsp;")
-        
-        out.write("</span>")
+        if not message["quoteMsg"]:
+            out.write("<span class=\"time\">")
+            out.write(datetime.fromtimestamp(message["timeStamp"]).isoformat() + " &nbsp;")
+            out.write("</span>")
 
         if (message["isFromMe"]):
             out.write("</div><div class=\"aw\"><div class=\"awr\"></div></div>")

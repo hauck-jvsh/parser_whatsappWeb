@@ -55,7 +55,14 @@ function createMediaElement(elementType, el) {
         sourceElement.setAttributeNode(src2Attr);
         mediaElement.appendChild(sourceElement);
     }
-    return mediaElement;
+    if (src1 || src2)
+        return mediaElement;
+    else {
+        if (elementType == "video") {
+            el.style.display = "block"
+        }
+        return el
+    }
 }
 
 function createMediaControls() {
