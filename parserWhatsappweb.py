@@ -699,10 +699,12 @@ def createReports(pastaAnexos,pastaRelatorios,chats,contacts):
     
    
     createContactPage(pastaRelatorios,contacts)
-
+    totmsgs=0
     for name,chat in chats.items():
+        totmsgs+=len(chat["chat"])
+        print("mensagens em",chat["id"],"-",chat["name"],":",len(chat["chat"]))
         createChatHTML(pastaRelatorios,chat,contacts,hashes)
-
+    print("Total de mensagens extraidas",totmsgs)
 def main():
     # assuming command line arguments are paths to the .leveldb and .blob folders
         
