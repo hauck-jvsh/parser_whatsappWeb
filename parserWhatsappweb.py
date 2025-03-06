@@ -11,7 +11,7 @@ import mozidbedit.mozidbedit.mozidb as mozidb
 from pathlib import Path
 import blackboxprotobuf
 import filetype
-
+import argparse
 
 # https://mazzo.li/posts/whatsapp-backup.html
 # message WhatsAppMessage {
@@ -708,20 +708,48 @@ def createReports(pastaAnexos,pastaRelatorios,chats,contacts):
     print("Total de mensagens extraidas",totmsgs)
 
 def main():
-    if len(sys.argv) not in (5,6):
-
-        print("Usage: {} pastaAnexos pastaRelatorios caminhoIndexedDB tipo [aesKey]".format(sys.argv[0]))
-
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Processamento de IndexedDB para chats de navegadores",
+        # Use Portuguese for consistency with variable names like 'pastaAnexos'
+        epilog="Exemplo: script.py pasta_anexos relatorios caminho_indexeddb tipo [hex_key]"
+    )
     
-    pastaAnexos = sys.argv[1]
-    pastaRelatorios = sys.argv[2]
-    caminhoIndexedDB = sys.argv[3]
-    tipo = sys.argv[4].lower()
+    # Required positional arguments
+    parser.add_argument('pastaAnexos', help='Diretório de anexos')
+    parser.add_argument('pastaRelatorios', help='Pasta para salvar os relatórios')
+    parser.add_argument('caminhoIndexedDB', help='Caminho do arquivo IndexedDB ou diretório')
+    parser.add_argument(
+        'tipo',
+        type=lambda s: s.lower(),
+        choices=['firefox', 'chrome'],
+        help="Tipo de navegador ('firefox' ou 'chrome')"
+    )
     
-    aesKey = bytes.fromhex(sys.argv[5]) if len(sys.argv) ==6 else None
+    # Argumento opcional com sinalizador --aeskey
+    def parse_aes_key(key_str):
+        if key_str is None:
+            return None # Permite omitir a chave
+        try:
+            return bytes.fromhex(key_str)
+        except ValueError:
+            raise argparse.ArgumentTypeError("Chave AES deve ser uma string hexadecimal válida")
+    
+    parser.add_argument(
+        '--aesKey',
+        dest='aesKey',  
+        default=None,
+        type=parse_aes_key,
+        help="Chave de criptografia em formato hexadecimal (opcional)"
+    )
 
-    # Criando diretório para relatórios, se não existir
+    args = parser.parse_args()
+    
+    pastaAnexos = args.pastaAnexos
+    pastaRelatorios = args.pastaRelatorios
+    caminhoIndexedDB = args.caminhoIndexedDB
+    tipo = args.tipo  # Already lowercase via lambda conversion
+    aesKey = args.aesKey  # Now properly converted to bytes or None
+
     Path(pastaRelatorios).mkdir(parents=True, exist_ok=True)
     
     if tipo == "firefox":
@@ -732,14 +760,10 @@ def main():
             indexedDB = loadDb(caminhoIndexedDB, blob_folder_path)
         else:
             indexedDB = loadDb(caminhoIndexedDB, None)
-    else:
-        print("Tipo inválido. Use 'firefox' ou 'chrome'")
-        sys.exit(1)
+
+    # Extract and process chats/contacts
+    chats, contacts = parseChats(indexedDB, aesKey)
     
-    # Extraindo chats e contatos
-    chats, contacts = parseChats(indexedDB,aesKey)
-    
-    # Criando relatórios
     createReports(pastaAnexos, pastaRelatorios, chats, contacts)
 
 if __name__ == "__main__":
