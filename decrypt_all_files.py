@@ -50,7 +50,7 @@ def printTables(db):
     for table in db.object_store_names:
         print(table)
 
-def decriptyFiles(indexedDB,hashes):
+def decriptyFiles(indexedDB,hashes,outputHashes):
     
     db_model=indexedDB["model-storage"]
     
@@ -74,7 +74,7 @@ def decriptyFiles(indexedDB,hashes):
             if "thumbnail" in record.value and isinstance(record.value["thumbnail"],str):
                 thumb=base64.b64decode(record.value["thumbnail"])
                 encFilehash=base64.b64decode(record.value["thumbnailEncSha256"])
-                if len(thumb)>0:
+                if len(thumb)>0 and pasta2 is not None:
                     open(pasta2+"/thumb_"+encFilehash.hex()+".jpg","wb").write(thumb)
                     continue
             
@@ -183,7 +183,7 @@ def decriptyFiles(indexedDB,hashes):
 
     
     print("7F02B9586DF9185BC1BA267AF28B4BE0BFCA4696127B42924AEF16CCE498123A".lower() in search)
-    open("hashes.txt","w").write(str(search.difference(found)))
+    open(outputHashes,"w").write(str(search.difference(found)).replace("{","sha\\-256:(").replace("}",")"))
             
            
 
@@ -260,32 +260,52 @@ def decrypt(fileName, mediaKey, mediaType, output,decHash=None):
 
     return True
 
-pasta="C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\files"
-pasta2="C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\dec_files"
 
+pasta=None
+pasta2=None
+import os
+import fnmatch
 #pasta2="G:\\oficio-2390369-2024\\cache_chrome\\files_dec"
 def main():
-    
-   
-    import os
-    import fnmatch
-    enc_files={}
-    print("teste")
-    for root, dir, files in os.walk(pasta):
+    global pasta,pasta2
+    if len(sys.argv) == 6:
+        pasta = sys.argv[4]
+        pasta2 = sys.argv[5]
+    elif len(sys.argv) != 4:
+        print("Uso: python script.py <caminhoIndexedDB> <tipo> <CaminhoSalvarHash.txt> <pasta> <pasta2> ou python script.py <caminhoIndexedDB> <tipo> <CaminhoSalvarHash.txt>")
+        sys.exit(1)
+
+    caminhoIndexedDB = sys.argv[1]
+    tipo = sys.argv[2].lower()
+    enc_files = {}
+    saidaHashes=sys.argv[3]
+    if pasta is not None:
+        print("Processando arquivos...")
+        
+        for root, _, files in os.walk(pasta):
             print(root)
             for item in fnmatch.filter(files, "*"):
                 try:
-                    sha256Hash = hashlib.sha256(open(pasta+"/"+item,"rb").read())
+                    sha256Hash = hashlib.sha256(open(os.path.join(pasta, item), "rb").read())
                     sha256Hashed = sha256Hash.hexdigest()
-                    #print(sha256Hashed)
-                    enc_files[sha256Hashed]=pasta+"/"+item
-                except:
-                    print("erro",item)
+                    enc_files[sha256Hashed] = os.path.join(pasta, item)
+                except Exception as e:
+                    print("Erro ao processar arquivo:", item, e)
     
-    #indexedDB=loadDbFirefox("G:\\of2203526-2024\\mat_2317_brownsers\\"+usuario+"\\"+profile+"\\storage\\default\\https+++web.whatsapp.com^firstPartyDomain=whatsapp.com\\idb")
-    #indexedDB=loadDb("G:\\of2203526-2024\\mat_2317_brownsers\\"+usuario+"\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb",None)
-    indexedDB=loadDb("C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb","C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob")
-    decriptyFiles(indexedDB,enc_files)
+    if tipo == "firefox":
+        indexedDB = loadDbFirefox(caminhoIndexedDB)
+    elif tipo == "chrome":
+        blob_folder_path = caminhoIndexedDB.replace(".leveldb", ".blob")
+        if os.path.exists(blob_folder_path):
+            indexedDB = loadDb(caminhoIndexedDB, blob_folder_path)
+        else:
+            indexedDB = loadDb(caminhoIndexedDB, None)
+    else:
+        print("Tipo inválido. Use 'firefox' ou 'chrome'")
+        sys.exit(1)
+    
+    decriptyFiles(indexedDB, enc_files,saidaHashes)
+
 if __name__ == "__main__":
     main()
 

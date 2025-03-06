@@ -182,8 +182,8 @@ def getMessage(rawData,aesKey,quoted=False):
     if "author" in rawData:
         message["author"]= getValue(rawData["author"],"_serialized")
 
-
-    if  "quotedMsg" in rawData and "from" in rawData["quotedMsg"]:
+    
+    if  "quotedMsg" in rawData and isinstance(rawData["quotedMsg"],dict) and "from" in rawData["quotedMsg"]:
         rawData["quotedMsg"]["id"]=rawData["id"]        
         message["quotedMsg"]=getMessage(rawData["quotedMsg"],aesKey,True)
         message["quotedMsg"]["decData"]=message["decData"]
@@ -260,7 +260,7 @@ def parseChats(indexedDB,aesKey:bytes|None=None):
                 "isAddressBookContact":None
             }
             
-        if isinstance(record.value["filehash"],str):
+        if "filehash" in record.value and isinstance(record.value["filehash"],str):
             contacts[contactid]["avatarHash"]=record.value["filehash"]
 
     
@@ -691,6 +691,7 @@ def createReports(pastaAnexos,pastaRelatorios,chats,contacts):
     hashes={}
     for root, dir, files in os.walk(pastaAnexos):
         print(root)
+        
         for item in fnmatch.filter(files, "*"):
             sha256Hash = hashlib.sha256(open(pastaAnexos+"/"+item,"rb").read())
             sha256Hashed = sha256Hash.hexdigest()
@@ -705,31 +706,38 @@ def createReports(pastaAnexos,pastaRelatorios,chats,contacts):
         print("mensagens em",chat["id"],"-",chat["name"],":",len(chat["chat"]))
         createChatHTML(pastaRelatorios,chat,contacts,hashes)
     print("Total de mensagens extraidas",totmsgs)
+
 def main():
-    # assuming command line arguments are paths to the .leveldb and .blob folders
-        
-    #leveldb_folder_path = "C:\\Users\\HAUCK\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
-    #blob_folder_path = "C:\\Users\\HAUCK\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
-    #leveldb_folder_path="D:\\mem_whatsapp\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
-    #blob_folder_path="D:\\mem_whatsapp\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
-    #leveldb_folder_path="F:\\Downloads\\volatility3-2.5.2\\caso_dip\\AppData\\Local\\Google\\Chrome\\User Data\\Profile 4\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
-    #blob_folder_path="F:\\Downloads\\volatility3-2.5.2\\caso_dip\\AppData\\Local\\Google\\Chrome\\User Data\\Profile 4\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob"
-    #blob_folder_path = None
-    #leveldb_folder_path = "G:\\of2203526-2024\\user12528_chrome\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb"
-   
-
-    pastaAnexos="C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\dec_files"
-
-    pastaRelatorios="C:\\Users\\HAUCK\\git\\whatsappWebService\\relatorio"
-    Path(pastaRelatorios).mkdir(parents=True, exist_ok=True)
-
-    #indexedDB=loadDb("G:\\of2203526-2024\\mat_2317_brownsers\\"+usuario+"\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb",None)
-    #indexedDB=loadDbFirefox("G:\\of2203526-2024\\mat_2317_brownsers\\"+usuario+"\\"+profile+"\\storage\\default\\https+++web.whatsapp.com^firstPartyDomain=whatsapp.com\\idb")
-
-    indexedDB=loadDb("C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.leveldb","C:\\Users\\HAUCK\\git\\whatsappWebService\\.wwebjs_auth\\session-teste\\Default\\IndexedDB\\https_web.whatsapp.com_0.indexeddb.blob")
+    if len(sys.argv) != 5:
+        print("Uso: python script.py <pastaAnexos> <pastaRelatorios> <caminhoIndexedDB> <tipo>")
+        sys.exit(1)
     
-    chats,contatcts=parseChats(indexedDB,b"\xdc\x26\x16\x16\xff\xba\x4a\x97\x86\x6e\x85\x53\x03\x95\xa0\xc9")
-    createReports(pastaAnexos,pastaRelatorios,chats,contatcts)
+    pastaAnexos = sys.argv[1]
+    pastaRelatorios = sys.argv[2]
+    caminhoIndexedDB = sys.argv[3]
+    tipo = sys.argv[4].lower()
+
+    # Criando diretório para relatórios, se não existir
+    Path(pastaRelatorios).mkdir(parents=True, exist_ok=True)
+    
+    if tipo == "firefox":
+        indexedDB = loadDbFirefox(caminhoIndexedDB)
+    elif tipo == "chrome":
+        blob_folder_path = caminhoIndexedDB.replace(".leveldb", ".blob")
+        if os.path.exists(blob_folder_path):
+            indexedDB = loadDb(caminhoIndexedDB, blob_folder_path)
+        else:
+            indexedDB = loadDb(caminhoIndexedDB, None)
+    else:
+        print("Tipo inválido. Use 'firefox' ou 'chrome'")
+        sys.exit(1)
+    
+    # Extraindo chats e contatos
+    chats, contacts = parseChats(indexedDB)
+    
+    # Criando relatórios
+    createReports(pastaAnexos, pastaRelatorios, chats, contacts)
 
 if __name__ == "__main__":
     main()
+
