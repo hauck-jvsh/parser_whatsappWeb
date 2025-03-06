@@ -708,14 +708,18 @@ def createReports(pastaAnexos,pastaRelatorios,chats,contacts):
     print("Total de mensagens extraidas",totmsgs)
 
 def main():
-    if len(sys.argv) != 5:
-        print("Uso: python script.py <pastaAnexos> <pastaRelatorios> <caminhoIndexedDB> <tipo>")
+    if len(sys.argv) not in (5,6):
+
+        print("Usage: {} pastaAnexos pastaRelatorios caminhoIndexedDB tipo [aesKey]".format(sys.argv[0]))
+
         sys.exit(1)
     
     pastaAnexos = sys.argv[1]
     pastaRelatorios = sys.argv[2]
     caminhoIndexedDB = sys.argv[3]
     tipo = sys.argv[4].lower()
+    
+    aesKey = bytes.fromhex(sys.argv[5]) if len(sys.argv) ==6 else None
 
     # Criando diretório para relatórios, se não existir
     Path(pastaRelatorios).mkdir(parents=True, exist_ok=True)
@@ -733,7 +737,7 @@ def main():
         sys.exit(1)
     
     # Extraindo chats e contatos
-    chats, contacts = parseChats(indexedDB)
+    chats, contacts = parseChats(indexedDB,aesKey)
     
     # Criando relatórios
     createReports(pastaAnexos, pastaRelatorios, chats, contacts)
