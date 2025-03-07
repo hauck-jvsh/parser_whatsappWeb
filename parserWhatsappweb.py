@@ -109,7 +109,7 @@ def AESDecrypt(key, ciphertext, iv:bytes):
     plaintext = cipher.decrypt(ciphertext)
     return AESUnpad(plaintext)
 
-def loadDb(leveldb_folder_path:str, blob_folder_path=None):
+def loadDb(leveldb_folder_path:str, blob_folder_path:str|None=None):
 
     
     #print("ola1")
@@ -269,7 +269,7 @@ def parseChats(indexedDB,aesKey:bytes|None=None):
     messages=db_model["message"]
     
     for record in messages.iterate_records():
-        if record.value is None or "t" not in record.value:
+        if record.value is None or "t" not in record.value or "rowId" not in record.value:
             continue
         message=getMessage(record.value,aesKey)
         chat_id=message["chat_id"]

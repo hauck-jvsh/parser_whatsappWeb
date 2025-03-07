@@ -50,7 +50,7 @@ def printTables(db):
     for table in db.object_store_names:
         print(table)
 
-def decriptyFiles(indexedDB,hashes,outputHashes):
+def decriptyFiles(indexedDB,hashes,pasta2):
     
     db_model=indexedDB["model-storage"]
     
@@ -120,12 +120,13 @@ def decriptyFiles(indexedDB,hashes,outputHashes):
                     ext="."+data["mimetype"].split("/")[1]
                 if "filename" in data and isinstance(data["filename"],str):
                     ext="."+data["filename"].split(".")[-1]
-                f_org=open(hashes[filehash.hex()],"rb")
-                f_dest=open(pasta2+"/copy_"+filehash.hex()+ext,"wb")
-                f_dest.write(f_org.read())
-                f_dest.close()
-                f_org.close()
-                del hashes[filehash.hex()]
+                if pasta2 is not None:
+                    f_org=open(hashes[filehash.hex()],"rb")
+                    f_dest=open(pasta2+"/copy_"+filehash.hex()+ext,"wb")
+                    f_dest.write(f_org.read())
+                    f_dest.close()
+                    f_org.close()
+                    del hashes[filehash.hex()]
             
         if  "encFilehash" in data and isinstance(data["encFilehash"], str) and "mediaKey" in data and isinstance(data["mediaKey"], str):
             
@@ -166,7 +167,7 @@ def decriptyFiles(indexedDB,hashes,outputHashes):
                     print("Chegou aqui")
                     if ext is None:
                             ext=infos[tipo]
-                    if decrypt(hashes[encFilehash.hex()],mediaKey,appInfo[tipo], pasta2+"/"+encFilehash.hex()+"."+ ext):
+                    if pasta2 is not None and decrypt(hashes[encFilehash.hex()],mediaKey,appInfo[tipo], pasta2+"/"+encFilehash.hex()+"."+ ext):
                         del hashes[encFilehash.hex()]
                 
 
@@ -182,8 +183,8 @@ def decriptyFiles(indexedDB,hashes,outputHashes):
     print("sem refencia",len(hashes.keys()))
 
     
-    print("7F02B9586DF9185BC1BA267AF28B4BE0BFCA4696127B42924AEF16CCE498123A".lower() in search)
-    open(outputHashes,"w").write(str(search.difference(found)).replace("{","sha\\-256:(").replace("}",")"))
+    return search.difference(found)
+    
             
            
 
@@ -261,13 +262,26 @@ def decrypt(fileName, mediaKey, mediaType, output,decHash=None):
     return True
 
 
-pasta=None
-pasta2=None
+
 import os
 import fnmatch
 #pasta2="G:\\oficio-2390369-2024\\cache_chrome\\files_dec"
+
+
+def load_enc_files(pasta):
+    print("Processando arquivos...")
+    enc_files={}    
+    for root, _, files in os.walk(pasta):
+        #print(root)
+        for item in fnmatch.filter(files, "*"):
+            try:
+                sha256Hash = hashlib.sha256(open(os.path.join(pasta, item), "rb").read())
+                sha256Hashed = sha256Hash.hexdigest()
+                enc_files[sha256Hashed] = os.path.join(pasta, item)
+            except Exception as e:
+                print("Erro ao processar arquivo:", item, e)
+    return enc_files
 def main():
-    global pasta,pasta2
     if len(sys.argv) == 6:
         pasta = sys.argv[4]
         pasta2 = sys.argv[5]
@@ -280,17 +294,7 @@ def main():
     enc_files = {}
     saidaHashes=sys.argv[3]
     if pasta is not None:
-        print("Processando arquivos...")
-        
-        for root, _, files in os.walk(pasta):
-            print(root)
-            for item in fnmatch.filter(files, "*"):
-                try:
-                    sha256Hash = hashlib.sha256(open(os.path.join(pasta, item), "rb").read())
-                    sha256Hashed = sha256Hash.hexdigest()
-                    enc_files[sha256Hashed] = os.path.join(pasta, item)
-                except Exception as e:
-                    print("Erro ao processar arquivo:", item, e)
+       enc_files=load_enc_files(pasta) 
     
     if tipo == "firefox":
         indexedDB = loadDbFirefox(caminhoIndexedDB)
@@ -304,7 +308,8 @@ def main():
         print("Tipo inválido. Use 'firefox' ou 'chrome'")
         sys.exit(1)
     
-    decriptyFiles(indexedDB, enc_files,saidaHashes)
+    hashes=decriptyFiles(indexedDB, enc_files,pasta2)
+    open(saidaHashes,"w").write(str(hashes).replace("{","sha\\-256:(").replace("}",")"))
 
 if __name__ == "__main__":
     main()
