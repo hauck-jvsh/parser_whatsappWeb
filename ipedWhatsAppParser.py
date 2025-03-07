@@ -2,17 +2,18 @@ import os
 from pathlib import Path
 from decrypt_all_files import decriptyFiles,load_enc_files
 from parserWhatsappweb import loadDb,loadDbFirefox,parseChats,createReports
-os.environ['CLASSPATH'] = 'C:\\Users\\HAUCK\\git\\IPED\\target\\release\\iped-4.2.0\\iped.jar'
+import argparse
+def _lazyLoad():
+    global jFile,IPEDSource,FileOutputStream,BufferedOutputStream,IOUtil,IPEDSearcher
+    from jnius import autoclass
 
-from jnius import autoclass
-
-#importing java classes
-File = autoclass('java.io.File')
-IPEDSource = autoclass("iped.engine.data.IPEDSource")
-FileOutputStream = autoclass('java.io.FileOutputStream')
-BufferedOutputStream = autoclass('java.io.BufferedOutputStream')
-IOUtil = autoclass("iped.utils.IOUtil")
-IPEDSearcher = autoclass("iped.engine.search.IPEDSearcher")
+    #importing java classes
+    jFile = autoclass('java.io.File')
+    IPEDSource = autoclass("iped.engine.data.IPEDSource")
+    FileOutputStream = autoclass('java.io.FileOutputStream')
+    BufferedOutputStream = autoclass('java.io.BufferedOutputStream')
+    IOUtil = autoclass("iped.utils.IOUtil")
+    IPEDSearcher = autoclass("iped.engine.search.IPEDSearcher")
 
 
 
@@ -27,7 +28,7 @@ def exportHashes(iped,hashes:set,saida:Path):
         item = iped.getItemByID(id)
         inputStream = item.getBufferedInputStream()
         path_saida=Path(saida,item.getName())
-        outputStream = BufferedOutputStream(FileOutputStream(File(str(path_saida))))
+        outputStream = BufferedOutputStream(FileOutputStream(jFile(str(path_saida))))
         try:
             IOUtil.copyInputToOutputStream(inputStream, outputStream)
         finally:
@@ -57,7 +58,7 @@ def exportDB(instalation,path_saida):
         path_export=Path(path_export,item.getName())
         inputStream = item.getBufferedInputStream()
         print("Exporting",path_org,"To",path_export)
-        outputStream = BufferedOutputStream(FileOutputStream(File(str(path_export))))
+        outputStream = BufferedOutputStream(FileOutputStream(jFile(str(path_export))))
         try:
             IOUtil.copyInputToOutputStream(inputStream, outputStream)
         finally:
@@ -74,8 +75,10 @@ def get_parent_folder(file_path):
         whatsapp_folder=whatsapp_folder.parent
     return  None
 
-def main():
-    iped = IPEDSource(File('Y:\\DIP\\vigilanciaaproximada\\EquipeDF01\\oficio366666-2024\\item15'))
+def main(iped_path,case_folder,output,aesKey=None):
+    os.environ['CLASSPATH'] = iped_path
+    _lazyLoad()
+    iped = IPEDSource(jFile(case_folder))
 
 
     searcher = IPEDSearcher(iped)
@@ -98,7 +101,7 @@ def main():
     i=0
     for inst in instalations.keys():
         i+=1
-        path_saida=Path("./saida/instalacao_"+str(i))
+        path_saida=Path(f"{output}/instalacao_"+str(i))
         exportDB(instalations[inst],path_saida)
         print("Parsing database")
         indexedDB=None
@@ -127,8 +130,38 @@ def main():
         path_report=Path(path_saida,"reports")
         path_report.mkdir(parents=True, exist_ok=True)
         print("Parsing chats")
-        chats, contacts = parseChats(indexedDB)
+        chats, contacts = parseChats(indexedDB,aesKey)
         print("Creating reporting")
         createReports(str(path_dec_files), str(path_report), chats, contacts)
-            
-main()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Processamento do whatsapp web em casos iped",
+        # Use Portuguese for consistency with variable names like 'pastaAnexos'
+        epilog="Exemplo: ipedWhatsAppParser.py pasta_iped pasta_caso diretorio_saida "
+    )
+    
+    # Required positional arguments
+    parser.add_argument('pasta_iped', help='Diretório da instalacao local do IPED')
+    parser.add_argument('pasta_caso', help='Caminho do diretório do caso processado')
+    parser.add_argument('diretorio_saida', help='Pasta para salvar os relatórios')
+
+     # Argumento opcional com sinalizador --aeskey
+    def parse_aes_key(key_str):
+        if key_str is None:
+            return None # Permite omitir a chave
+        try:
+            return bytes.fromhex(key_str)
+        except ValueError:
+            raise argparse.ArgumentTypeError("Chave AES deve ser uma string hexadecimal válida")
+    
+    parser.add_argument(
+        '--aesKey',
+        dest='aesKey',  
+        default=None,
+        type=parse_aes_key,
+        help="Chave de criptografia em formato hexadecimal (opcional)"
+    )
+    args = parser.parse_args()
+    
+    main(args.pasta_iped,args.pasta_caso,args.diretorio_saida,args.aesKey)
