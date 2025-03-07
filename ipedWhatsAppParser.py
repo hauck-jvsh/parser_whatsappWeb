@@ -99,10 +99,15 @@ def main(iped_path,case_folder,output,aesKey=None):
 
     print("numero de instalacoes",len(instalations))
     i=0
-    for inst in instalations.keys():
+    for instalation in instalations.values():
         i+=1
         path_saida=Path(f"{output}/instalacao_"+str(i))
-        exportDB(instalations[inst],path_saida)
+        path_saida.mkdir(parents=True, exist_ok=True)
+        first_item=instalation[0]
+        file_instaltion_path=Path(path_saida,"instaltion_path.txt").open("w")
+        file_instaltion_path.write(first_item.getPath())
+        file_instaltion_path.close()
+        exportDB(instalation,path_saida)
         print("Parsing database")
         indexedDB=None
         if Path(path_saida,".leveldb").is_dir(): # entao e chrome
