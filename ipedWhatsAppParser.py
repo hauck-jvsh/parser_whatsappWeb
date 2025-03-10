@@ -68,7 +68,7 @@ def exportDB(instalation,path_saida):
 
 def get_parent_folder(file_path):
     p = Path(file_path)
-    whatsapp_folder= p.parent
+    whatsapp_folder= p
     while whatsapp_folder:
         if "web.whatsapp" in whatsapp_folder.name:
             return whatsapp_folder
@@ -84,7 +84,7 @@ def main(iped_path,case_folder,output,aesKey=None):
     searcher = IPEDSearcher(iped)
 
     # search for recovered files
-    searcher.setQuery(f'path:"web.whatsapp"')
+    searcher.setQuery(f'path:"web.whatsapp" AND isDir:false')
     ids = searcher.search().getIds()
 
 

@@ -51,7 +51,8 @@ def printTables(db):
         print(table)
 
 def decriptyFiles(indexedDB,hashes,pasta2):
-    
+    if "model-storage" not in indexedDB:
+       return set()
     db_model=indexedDB["model-storage"]
     
     

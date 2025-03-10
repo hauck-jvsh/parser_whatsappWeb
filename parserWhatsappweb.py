@@ -192,7 +192,8 @@ def getMessage(rawData,aesKey,quoted=False):
     
 
 def parseChats(indexedDB,aesKey:bytes|None=None):
-   
+    if "model-storage" not in indexedDB:
+       return {},{}
     db_model=indexedDB["model-storage"]
     chats={}
     contacts={}
