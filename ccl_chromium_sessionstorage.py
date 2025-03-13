@@ -23,11 +23,14 @@ import sys
 import pathlib
 import typing
 import dataclasses
+import re
+import collections.abc as col_abc
 from types import MappingProxyType
 
-import ccl_leveldb
+from .storage_formats import ccl_leveldb
+from .common import KeySearch
 
-__version__ = "0.2.1"
+__version__ = "0.6"
 __description__ = "Module for reading the Chromium leveldb sessionstorage format"
 __contact__ = "Alex Caithness"
 
@@ -42,9 +45,16 @@ log = None
 
 @dataclasses.dataclass(frozen=True)
 class SessionStoreValue:
+    host: typing.Optional[str]
+    key: str
     value: str
-    guid: typing.Optional[str]
+    # guid: typing.Optional[str]
     leveldb_sequence_number: int
+    is_deleted: bool = False
+
+    @property
+    def record_location(self) -> str:
+        return f"Leveldb Seq: {self.leveldb_sequence_number}"
 
 
 class SessionStoreDb:
@@ -60,7 +70,7 @@ class SessionStoreDb:
         # If performance is a concern we should refactor this, but slow and steady for now
 
         # First collect the namespace (session/tab guid  + host) and map-ids together
-        self._map_id_to_host = {}  # map_id: (guid, host)
+        self._map_id_to_host = {}  # map_id: host
         self._deleted_keys = set()
 
         for rec in self._ldb.iterate_records_raw():
@@ -111,7 +121,9 @@ class SessionStoreDb:
 
         # freeze stuff
         self._map_id_to_host = MappingProxyType(self._map_id_to_host)
+
         self._deleted_keys = frozenset(self._deleted_keys)
+        self._deleted_keys_lookup: dict[str, tuple] = {}
 
         self._host_lookup = {}  # {host: {ss_key: [SessionStoreValue, ...]}}
         self._orphans = []  #  list of tuples of key, value where we can't get the host
@@ -123,8 +135,8 @@ class SessionStoreDb:
                     print(f"Invalid map id key: {rec.user_key}")
                     continue
 
-                if rec.state == ccl_leveldb.KeyState.Deleted:
-                    continue  # TODO: do we want to keep the key around because the presence is important?
+                # if rec.state == ccl_leveldb.KeyState.Deleted:
+                #     continue  # TODO: do we want to keep the key around because the presence is important?
 
                 split_key = key.split("-", 2)
                 if len(split_key) != 3:
@@ -139,7 +151,7 @@ class SessionStoreDb:
                     continue
 
                 try:
-                    value = rec.value.decode("UTF-16-LE")
+                    value = rec.value.decode("UTF-16-LE") if rec.state == ccl_leveldb.KeyState.Live else None
                 except UnicodeDecodeError:
                     print(f"Error decoding value for {key}")
                     print(f"Raw Value: {rec.value}")
@@ -147,11 +159,15 @@ class SessionStoreDb:
 
                 host = self._map_id_to_host.get(map_id)
                 if not host:
-                    self._orphans.append((ss_key, SessionStoreValue(value, None, rec.seq)))
+                    self._orphans.append(
+                        (ss_key,
+                         SessionStoreValue(None, ss_key, value, rec.seq, rec.state == ccl_leveldb.KeyState.Deleted)
+                         ))
                 else:
                     self._host_lookup.setdefault(host, {})
                     self._host_lookup[host].setdefault(ss_key, [])
-                    self._host_lookup[host][ss_key].append(SessionStoreValue(value, None, rec.seq))
+                    self._host_lookup[host][ss_key].append(
+                        SessionStoreValue(host, ss_key, value, rec.seq, rec.state == ccl_leveldb.KeyState.Deleted))
 
     def __contains__(self, item: typing.Union[str, typing.Tuple[str, str]]) -> bool:
         """
@@ -176,6 +192,7 @@ class SessionStoreDb:
 
     def get_all_for_host(self, host: str) -> dict[str, tuple[SessionStoreValue, ...]]:
         """
+        DEPRECATED
         :param host: the host (domain name) for the session storage
         :return: a dictionary where the keys are storage keys and the values are tuples of SessionStoreValue objects
             for that key. Multiple values may be returned as deleted or old values may be recovered.
@@ -187,8 +204,62 @@ class SessionStoreDb:
             result_raw[ss_key] = tuple(result_raw[ss_key])
         return result_raw
 
-    def get_session_storage_key(self, host, key) -> tuple[SessionStoreValue, ...]:
+    def _search_host(self, host: KeySearch) -> list[str]:
+        if isinstance(host, str):
+            return [host]
+        elif isinstance(host, re.Pattern):
+            return [x for x in self._host_lookup if host.search(x)]
+        elif isinstance(host, col_abc.Collection):
+            return list(set(host) & self._host_lookup.keys())
+        elif isinstance(host, col_abc.Callable):
+            return [x for x in self._host_lookup if host(x)]
+        else:
+            raise TypeError(f"Unexpected type: {type(host)} (expects: {KeySearch})")
+
+    def iter_records_for_host(
+            self, host: KeySearch, *,
+            include_deletions=False, raise_on_no_result=True) -> col_abc.Iterable[SessionStoreValue]:
         """
+        :param host: storage key (host) for the records. This can be one of: a single string;
+        a collection of strings; a regex pattern; a function that takes a string (each host) and returns a bool.
+        :param include_deletions: if True, records related to deletions will be included
+        :param raise_on_no_result: if True (the default) if no matching storage keys are found, raise a KeyError
+        (these will have None as values).
+        :return: iterable of SessionStoreValue
+        """
+        if isinstance(host, str):
+            if raise_on_no_result and host not in self._host_lookup:
+                raise KeyError(host)
+            for records in self._host_lookup[host].values():
+                for rec in records:
+                    if include_deletions or not rec.is_deleted:
+                        yield rec
+        elif isinstance(host, re.Pattern) or isinstance(host, col_abc.Collection) or isinstance(host, col_abc.Callable):
+            found_hosts = self._search_host(host)
+            if raise_on_no_result and not found_hosts:
+                raise KeyError(host)
+            for found_host in found_hosts:
+                for records in self._host_lookup[found_host].values():
+                    for rec in records:
+                        if include_deletions or not rec.is_deleted:
+                            yield rec
+        else:
+            raise TypeError(f"Unexpected type for host: {type(host)} (expects: {KeySearch})")
+
+    def iter_all_records(self, *, include_deletions=False, include_orphans=False):
+        """
+        Returns all records recovered from session storage
+        :param include_deletions: if True, records related to deletions will be included
+        :param include_orphans: if True, records which cannot be associated with a host will be included
+        """
+        for host in self.iter_hosts():
+            yield from self.iter_records_for_host(host, include_deletions=include_deletions)
+        if include_orphans:
+            yield from (x[1] for x in self.iter_orphans())
+
+    def get_session_storage_key(self, host: str, key: str) -> tuple[SessionStoreValue, ...]:
+        """
+        DEPRECATED
         :param host: the host (domain name) for the session storage
         :param key: the storage key
         :return: a tuple of SessionStoreValue matching the host and key. Multiple values may be returned as deleted or
@@ -197,6 +268,56 @@ class SessionStoreDb:
         if (host, key) not in self:
             return tuple()
         return tuple(self._host_lookup[host][key])
+
+    def iter_records_for_session_storage_key(
+            self, host: KeySearch, key: KeySearch, *,
+            include_deletions=False, raise_on_no_result=True) -> col_abc.Iterable[SessionStoreValue]:
+        """
+        :param host: storage key (host) for the records. This can be one of: a single string;
+        a collection of strings; a regex pattern; a function that takes a string (each host) and returns a bool.
+        :param key: script defined key for the records. This can be one of: a single string;
+        a collection of strings; a regex pattern; a function that takes a string and returns a bool.
+        :param include_deletions: if True, records related to deletions will be included
+        :param raise_on_no_result: if True (the default) if no matching storage keys are found, raise a KeyError
+        (these will have None as values).
+        :return: iterable of LocalStorageRecords
+        """
+        if isinstance(host, str) and isinstance(key, str):
+            if host not in self._host_lookup or key not in self._host_lookup[host]:
+                if raise_on_no_result:
+                    raise KeyError((host, key))
+                else:
+                    return []
+
+            yield from (r for r in self._host_lookup[host][key] if include_deletions or not r.is_deleted)
+
+        else:
+            found_hosts = self._search_host(host)
+            if raise_on_no_result and not found_hosts:
+                raise KeyError((host, key))
+
+            yielded = False
+            for found_host in found_hosts:
+                if isinstance(key, str):
+                    matched_keys = [key]
+                elif isinstance(key, re.Pattern):
+                    matched_keys = [x for x in self._host_lookup[found_host].keys() if key.search(x)]
+                elif isinstance(key, col_abc.Collection):
+                    script_key_set = set(key)
+                    matched_keys = list(self._host_lookup[found_host].keys() & script_key_set)
+                elif isinstance(key, col_abc.Callable):
+                    matched_keys = [x for x in self._host_lookup[found_host].keys() if key(x)]
+                else:
+                    raise TypeError(f"Unexpected type for script key: {type(key)} (expects: {KeySearch})")
+
+                for matched_key in matched_keys:
+                    for rec in self._host_lookup[found_host][matched_key]:
+                        if include_deletions or not rec.is_deleted:
+                            yielded = True
+                            yield rec
+
+            if not yielded and raise_on_no_result:
+                raise KeyError((host, key))
 
     def iter_orphans(self) -> typing.Iterable[tuple[str, SessionStoreValue]]:
         """

@@ -29,9 +29,9 @@ import pathlib
 import datetime
 import types
 import typing
-from ccl_easy_chromium_pickle import EasyPickleIterator, EasyPickleException
+from .serialization_formats.ccl_easy_chromium_pickle import EasyPickleIterator, EasyPickleException
 
-__version__ = "0.1"
+__version__ = "0.2"
 __description__ = "Module for reading Chromium SNSS files"
 __contact__ = "Alex Caithness"
 
@@ -91,6 +91,11 @@ class SessionRestoreIdType(enum.Enum):
     CommandSetWindowVisibleOnAllWorkspaces = 32
     CommandAddTabExtraData = 33
     CommandAddWindowExtraData = 34
+
+    # Edge has custom command types. These are what I have seen so far.
+    # None of these types appear to be related to browsing data at the moment (typically only a few bytes long).
+    EdgeCommandUnknown131 = 131
+    EdgeCommandUnknown132 = 132
 
     UnusedCommand = 255
 

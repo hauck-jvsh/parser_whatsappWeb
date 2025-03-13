@@ -12,44 +12,7 @@ from pathlib import Path
 import blackboxprotobuf
 import filetype
 import argparse
-
-# https://mazzo.li/posts/whatsapp-backup.html
-# message WhatsAppMessage {
-#   string body = 1;
-#   string caption = 2;
-#   string loc = 4;
-#   double lng = 5;
-#   double lat = 7;
-#   int32 paymentAmount1000 = 8;
-#   string paymentNoteMsgBody = 9;
-#   string canonicalUrl = 10;
-#   string matchedText = 11;
-#   string title = 12;
-#   string description = 13;
-#   bytes futureproofBuffer = 14;
-# }
-
-# message FullWhatsAppMessage {
-#   WhatsAppMessage currentMsg = 1;
-#   WhatsAppMessage quotedMsg = 1;
-# }
-
-
-
-
-type_whatsappmsg= {'1': {'type': 'str', 'name': 'body'},
-                  '2': {'type': 'str', 'name': 'caption'},
-                  '3': {'type': 'str', 'name': 'mediaText'},
-                  '4': {'type': 'str', 'name': 'loc'},
-                  '5': {'type': 'double', 'name': 'lng'},
-                  '7': {'type': 'double', 'name': 'lat'},
-                  '11': {'type': 'str', 'name': 'matchedText'},
-                  '12': {'type': 'str', 'name': 'title'}, 
-                  '13': {'type': 'str', 'name': 'description'}, 
-                  '21': {'type': 'bytes', 'name': ''}}
-type_prot={'1': {'type': 'message', 'message_typedef': type_whatsappmsg, 
-                  'name': 'currentMsg'}, 
-           '2': {'type': 'message', 'message_typedef': type_whatsappmsg, 'name': 'quotedMsg'}}
+from messagemProtoBufDefinition import type_prot
 
 class TagHtml:
     def __init__(self, tagname):
@@ -172,6 +135,7 @@ def getMessage(rawData,aesKey,quoted=False):
         #print(message["encData"]["_data"].hex())
         #print(bytes(message["encData"]["iv"]).hex())
         #input()
+        print("dados cifrados",message["encData"])
         message["decData"]=None
         if aesKey is not None and not quoted:
             message["decData"]=AESDecrypt(aesKey,message["encData"]["_data"],bytes(message["encData"]["iv"]))
@@ -190,10 +154,13 @@ def getMessage(rawData,aesKey,quoted=False):
 
     return message
     
+def error_handler(key, value):
+    print(key,value)
 
 def parseChats(indexedDB,aesKey:bytes|None=None):
     if "model-storage" not in indexedDB:
        return {},{}
+    print("Inicio do parsing")
     db_model=indexedDB["model-storage"]
     chats={}
     contacts={}
@@ -215,6 +182,7 @@ def parseChats(indexedDB,aesKey:bytes|None=None):
             continue
        
         name=None
+
         if name is None and "name" in record.value:
             name=record.value["name"]
         if name is None and "pushname" in record.value:
@@ -269,7 +237,7 @@ def parseChats(indexedDB,aesKey:bytes|None=None):
     
     messages=db_model["message"]
     
-    for record in messages.iterate_records():
+    for record in messages.iterate_records(bad_deserializer_data_handler=error_handler):
         if record.value is None or "t" not in record.value or "rowId" not in record.value:
             continue
         message=getMessage(record.value,aesKey)
