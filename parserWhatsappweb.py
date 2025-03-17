@@ -157,6 +157,31 @@ def getMessage(rawData,aesKey,quoted=False):
 def error_handler(key, value):
     print(key,value)
 
+def getIndexedDB(caminhoIndexedDB):
+    if ".leveldb" in caminhoIndexedDB:
+        blob_folder_path = caminhoIndexedDB.replace(".leveldb", ".blob")
+        if os.path.exists(blob_folder_path):
+            indexedDB = loadDb(caminhoIndexedDB, blob_folder_path)
+        else:
+            indexedDB = loadDb(caminhoIndexedDB, None)
+    else:
+      indexedDB = loadDbFirefox(caminhoIndexedDB)
+      return indexedDB
+
+def getEncryptedMessage(caminhoIndexedDB):
+    indexedDB=getIndexedDB(caminhoIndexedDB)
+    if "model-storage" not in indexedDB:
+        return None
+    db_model=indexedDB["model-storage"]
+    messages=db_model["message"]
+    
+    for record in messages.iterate_records(bad_deserializer_data_handler=error_handler):
+        if record.value is None or "t" not in record.value or "rowId" not in record.value:
+            continue
+        message=getMessage(record.value,None)
+        if "encData" in message and "_data" in  message["encData"] and len(message["encData"]["_data"])>200:
+            return message["encData"]
+
 def parseChats(indexedDB,aesKey:bytes|None=None):
     if "model-storage" not in indexedDB:
        return {},{}
@@ -490,11 +515,6 @@ def printAudio( out,  message):
 
     out.write("<br/>")
 
-    
-    
-
-
-
 def printMessage(out, message,contacts):
 
         out.write("\n<div class=\"linha\" id=\"" + str(message["timeStamp"]) + "\">")
@@ -588,8 +608,6 @@ def printMessage(out, message,contacts):
 
         out.write("</div></div>")
 
-    
-
 def createChatHTML(pasta,chat,contacts,hashes):
    
     title=None
@@ -630,7 +648,6 @@ def createChatHTML(pasta,chat,contacts,hashes):
     
     printMessageFileFooter(file)
     file.close()
-
 
 def createContactPage(pasta,contacts):
     contact_file=open(pasta+"/"+"contatos.html","wb")

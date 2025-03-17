@@ -75,6 +75,7 @@ import math
 import numpy as np
 
 from messagemProtoBufDefinition import type_prot
+from parserWhatsappweb import getEncryptedMessage
 
 
 def shannon_entropy(data: bytes) -> float:
@@ -171,13 +172,19 @@ def process_chunk(args):
 
     return results
 import os
-def main():
+def main(path_db,memdump_path):
     # Your ciphertext + IV
     #encData=b'\xf1\xaf\xd6Q\xa2.\x84\xd7\xd6\xb5\x0f\x96v\x86j\xfc\xb7\x90\x97\x0e\x0eu\x9c\x0e_\xab\xe6)\x1bF\xb8\x8a\xac:3b\xaen\xa5\x80\xddj<,\xf3\x92\xf1j\xa7,+\xd9\x8b\xff\xba\t\x80\xaf\xc8\x17"\xf9P\xa1\xfe\x93\xcf\x99\xca\xe6}\xc6\xbd\xbbe-\xfb\x16\xca\xbf\x85f\x8c\xe0`T%\ng\x98\xd6l\xa46\xecU'
     #iv= bytes((12, 65, 70, 171, 217, 32, 139, 111, 12, 21, 187, 64, 113, 39, 0, 111))
-    encData=b'~\x86\xaa3; g\xc7gi\x83np\x06\xaf\xdc\xc6\xaa\xeaC \xf8\x0e\x8e\x14\xa4D\x02\xfd!\xdc&D\xb6\x15\x19v\xf9\xde\x98\xde\x17\xe2\xcb:d\xb6\xabq\x83\xf1bP\xf6,)\xf8?FU\xa6\xeb6ix\xb2\\\xc7=Tb\x97\xd0\x83\xac\x0b\xcb\xda\xd1\xb7'
-    iv=bytes((0, 187, 58, 106, 33, 82, 72, 36, 137, 99, 230, 93, 126, 66, 255, 52))
-    memdump_path = r"F:\teste_decrypt_whatsapp\HibRec_2025-03-10-20-02-26-49481\ActiveMemory.bin"
+    #encData=b'~\x86\xaa3; g\xc7gi\x83np\x06\xaf\xdc\xc6\xaa\xeaC \xf8\x0e\x8e\x14\xa4D\x02\xfd!\xdc&D\xb6\x15\x19v\xf9\xde\x98\xde\x17\xe2\xcb:d\xb6\xabq\x83\xf1bP\xf6,)\xf8?FU\xa6\xeb6ix\xb2\\\xc7=Tb\x97\xd0\x83\xac\x0b\xcb\xda\xd1\xb7'
+    #iv=bytes((0, 187, 58, 106, 33, 82, 72, 36, 137, 99, 230, 93, 126, 66, 255, 52))
+    #memdump_path = r"F:\teste_decrypt_whatsapp\HibRec_2025-03-10-20-02-26-49481\ActiveMemory.bin"
+    
+    message=getEncryptedMessage(path_db)
+    encData = message["_data"]
+    iv =  bytes(message["iv"])
+    print("mensagem",message)
+    
     #print(decrypt_and_decode(bytes.fromhex("9ead014a52ee89494594029c45bcaaff"),encData,iv))
     # Get the file size (no need to read entire file into memory!)
     file_size = os.path.getsize(memdump_path)
@@ -214,4 +221,5 @@ def main():
         print("Decoded Message:", msg)
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(sys.argv[1],sys.argv[2])
