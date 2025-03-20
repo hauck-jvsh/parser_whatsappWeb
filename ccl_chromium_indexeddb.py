@@ -31,8 +31,8 @@ import dataclasses
 import types
 import typing
 
-from storage_formats import ccl_leveldb
-from serialization_formats import ccl_blink_value_deserializer, ccl_v8_value_deserializer
+from .storage_formats import ccl_leveldb
+from .serialization_formats import ccl_blink_value_deserializer, ccl_v8_value_deserializer
 
 __version__ = "0.19"
 __description__ = "Module for reading Chromium IndexedDB LevelDB databases."
