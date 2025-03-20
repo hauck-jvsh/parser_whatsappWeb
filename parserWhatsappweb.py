@@ -1,5 +1,5 @@
 import fnmatch
-import ccl_chromium_indexeddb
+from . import ccl_chromium_indexeddb
 from Crypto.Cipher import AES
 import hashlib
 import hmac
@@ -7,7 +7,7 @@ import base64
 import sys
 import os
 from datetime import datetime
-import mozidbedit.mozidbedit.mozidb as mozidb
+from .mozidbedit.mozidbedit import mozidb
 from pathlib import Path
 import blackboxprotobuf
 import filetype

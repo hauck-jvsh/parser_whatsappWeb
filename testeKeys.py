@@ -74,8 +74,7 @@ import mmap
 import math
 import numpy as np
 
-from messagemProtoBufDefinition import type_prot
-from parserWhatsappweb import getEncryptedMessage
+from .messagemProtoBufDefinition import type_prot
 
 
 def shannon_entropy(data: bytes) -> float:
