@@ -12,7 +12,7 @@ from pathlib import Path
 import blackboxprotobuf
 import filetype
 import argparse
-from messagemProtoBufDefinition import type_prot
+from .messagemProtoBufDefinition import type_prot
 
 class TagHtml:
     def __init__(self, tagname):
