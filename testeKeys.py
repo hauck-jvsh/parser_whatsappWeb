@@ -166,40 +166,45 @@ def process_chunk(args):
                 if isinstance(msg_dict[type_msg],dict ) and listInKeys(["body","caption","mediaText","loc","lat","lng","matchedText","title","description"],msg_dict[type_msg]):
                     print("key",key_candidate.hex(),shannon_entropy(key_candidate),shannon_entropy_np(key_candidate))
                     print("Mensagem",msg_dict)
-                    results.append((offset, key_candidate.hex(), msg_dict))
-
+                    if isinstance(msg_dict[type_msg]['body'], str):
+                        results.append((offset, key_candidate.hex(), msg_dict))
         mm.close()
 
     return results
 import os
-def main(path_db,memdump_path):
+
+
+
+
+
+
+
+def main(encData,iv, memdump_path, offset):
     # Your ciphertext + IV
+    #{'_data': b'C\x89\xc8sq\xbe\x82\x06\xa5|up\xf9\x18[q5x\x1b\x06`J}\x87\xcd\x98\x04\x89u\x91\xeev\x1d\x1dUp\xab\xd1\xd8\xa3\xde\xd7,\xaa_;\x07\x1cM\x88\xc4F\xf1\xf7;\x98\x0c\x97\x83\xf0\x8c\xda\xa7J^e\xdaG\xee\x11S,\x14\xd02]\xa2\xbf\x87\x82\xb0jY\x0eU\xba0B\xdc\xdbN}\x12\xfd\x93\xeb5\x8c\x07#\x8e\x0f\xc6\xb5\x8c\x10\xbf\xd4A\x00\xf5]i\x02t\x92\x06\xe8\xe3xV\x1e}\xa6\xa6\xe0e\x82\x9d*\xa1;\xee76\xde\xc2aS\xcb\x1c\x04\xd1\xc9k\xe4CA\xea\xc3?F\xa7\n\n\x18%\x0e\x99\x12QY\xfc\xd0\xa1\xf0\x17b\xc2\xb2d\xbd[\xc8\xdf\x9f\x13\xf2\xc8\x9f\xca~hUY\xc2\xa0uZi\xdfp\xe1\xc56)\x96\xb6\x01H\xf4;~\xbe\xd4\xfab\xe3', 'iv': (228, 179, 37, 170, 195, 176, 25, 28, 77, 193, 105, 8, 96, 42, 154, 164), '_keyId': 1, '_scheme': 1}
+
+
     #encData=b'\xf1\xaf\xd6Q\xa2.\x84\xd7\xd6\xb5\x0f\x96v\x86j\xfc\xb7\x90\x97\x0e\x0eu\x9c\x0e_\xab\xe6)\x1bF\xb8\x8a\xac:3b\xaen\xa5\x80\xddj<,\xf3\x92\xf1j\xa7,+\xd9\x8b\xff\xba\t\x80\xaf\xc8\x17"\xf9P\xa1\xfe\x93\xcf\x99\xca\xe6}\xc6\xbd\xbbe-\xfb\x16\xca\xbf\x85f\x8c\xe0`T%\ng\x98\xd6l\xa46\xecU'
     #iv= bytes((12, 65, 70, 171, 217, 32, 139, 111, 12, 21, 187, 64, 113, 39, 0, 111))
-    #encData=b'~\x86\xaa3; g\xc7gi\x83np\x06\xaf\xdc\xc6\xaa\xeaC \xf8\x0e\x8e\x14\xa4D\x02\xfd!\xdc&D\xb6\x15\x19v\xf9\xde\x98\xde\x17\xe2\xcb:d\xb6\xabq\x83\xf1bP\xf6,)\xf8?FU\xa6\xeb6ix\xb2\\\xc7=Tb\x97\xd0\x83\xac\x0b\xcb\xda\xd1\xb7'
-    #iv=bytes((0, 187, 58, 106, 33, 82, 72, 36, 137, 99, 230, 93, 126, 66, 255, 52))
-    #memdump_path = r"F:\teste_decrypt_whatsapp\HibRec_2025-03-10-20-02-26-49481\ActiveMemory.bin"
-    
-    message=getEncryptedMessage(path_db)
-    encData = message["_data"]
-    iv =  bytes(message["iv"])
-    print("mensagem",message)
-    
+
     #print(decrypt_and_decode(bytes.fromhex("9ead014a52ee89494594029c45bcaaff"),encData,iv))
     # Get the file size (no need to read entire file into memory!)
     file_size = os.path.getsize(memdump_path)
     print(f"File size: {file_size} bytes")
 
     # Decide how many processes to use. Often = number of CPU cores.
-    nprocs = 16
+    nprocs = 32
     print(f"Launching {nprocs} processes...")
 
     # Divide the file into nprocs chunks
-    chunk_size = math.ceil(file_size / nprocs)
+    chunk_size = math.ceil((file_size-offset) / nprocs)
+
+    chunk_size = chunk_size - chunk_size % 16
+
 
     # Build tasks for each process
     tasks = []
-    start = 0
+    start = offset
     for _ in range(nprocs):
         end = min(start + chunk_size, file_size)
         tasks.append((memdump_path, start, end, encData, iv))
@@ -211,6 +216,7 @@ def main(path_db,memdump_path):
     with multiprocessing.Pool(nprocs) as pool:
         results_list = pool.map(process_chunk, tasks)
 
+
     # Flatten all results
     all_candidates = [item for sublist in results_list for item in sublist]
     print(f"\nScan complete! Found {len(all_candidates)} candidate keys.\n")
@@ -220,6 +226,11 @@ def main(path_db,memdump_path):
         print(f"Offset={offset:#x}, key={key_hex}")
         print("Decoded Message:", msg)
 
+    return all_candidates
+
 if __name__ == "__main__":
-    import sys
-    main(sys.argv[1],sys.argv[2])
+    encData = b'C\x89\xc8sq\xbe\x82\x06\xa5|up\xf9\x18[q5x\x1b\x06`J}\x87\xcd\x98\x04\x89u\x91\xeev\x1d\x1dUp\xab\xd1\xd8\xa3\xde\xd7,\xaa_;\x07\x1cM\x88\xc4F\xf1\xf7;\x98\x0c\x97\x83\xf0\x8c\xda\xa7J^e\xdaG\xee\x11S,\x14\xd02]\xa2\xbf\x87\x82\xb0jY\x0eU\xba0B\xdc\xdbN}\x12\xfd\x93\xeb5\x8c\x07#\x8e\x0f\xc6\xb5\x8c\x10\xbf\xd4A\x00\xf5]i\x02t\x92\x06\xe8\xe3xV\x1e}\xa6\xa6\xe0e\x82\x9d*\xa1;\xee76\xde\xc2aS\xcb\x1c\x04\xd1\xc9k\xe4CA\xea\xc3?F\xa7\n\n\x18%\x0e\x99\x12QY\xfc\xd0\xa1\xf0\x17b\xc2\xb2d\xbd[\xc8\xdf\x9f\x13\xf2\xc8\x9f\xca~hUY\xc2\xa0uZi\xdfp\xe1\xc56)\x96\xb6\x01H\xf4;~\xbe\xd4\xfab\xe3'
+    iv = bytes((228, 179, 37, 170, 195, 176, 25, 28, 77, 193, 105, 8, 96, 42, 154, 164))
+    memdump_path = "C:\\Users\\Bichara\\PycharmProjects\\dpapiCreds\\tmp\\hiberfil_20250314_151957\\HibRec_2025-03-14-15-20-48-40051\\ActiveMemory.bin"
+    offset = 0
+    main(encData,iv, memdump_path, offset)

@@ -135,7 +135,7 @@ def getMessage(rawData,aesKey,quoted=False):
         #print(message["encData"]["_data"].hex())
         #print(bytes(message["encData"]["iv"]).hex())
         #input()
-        print("dados cifrados",message["encData"])
+        #print("dados cifrados",message["encData"])
         message["decData"]=None
         if aesKey is not None and not quoted:
             message["decData"]=AESDecrypt(aesKey,message["encData"]["_data"],bytes(message["encData"]["iv"]))
@@ -311,10 +311,10 @@ def printMessageFileHeader(out, title, avatar):
                 + "	<meta name=\"viewport\" content=\"width=device-width\" />\n" 
                 + "     <meta charset=\"UTF-8\" />\n" 
                 + "	<link rel=\"shortcut icon\" href=\"" 
-                + getImageResourceAsEmbedded("img/favicon.ico") + "\" />\n" 
-                + "<style>\n" + open("css/whatsapp.css","r").read()
+                + getImageResourceAsEmbedded(basepath+"/img/favicon.ico") + "\" />\n"
+                + "<style>\n" + open(basepath+"/css/whatsapp.css","r").read()
                 + "\n</style>\n" + "<script>"
-                + open("js/whatsapp.js","r").read() + "</script>"
+                + open(basepath+"/js/whatsapp.js","r").read() + "</script>"
                 "<style>.tab {display: inline-block; border-collapse: collapse; border: 1px solid black;}"
                 + ".cel {border-colapse: colapse; border: 1px solid black; font-family: Arial, sans-serif;}</style></head>\n" 
                 + "<style>.check {vertical-align: top;}</style>" + "<body>\n" 
@@ -675,14 +675,15 @@ def createContactPage(pasta,contacts):
 def createReports(pastaAnexos,pastaRelatorios,chats,contacts):
     
     hashes={}
-    for root, dir, files in os.walk(pastaAnexos):
-        print(root)
-        
-        for item in fnmatch.filter(files, "*"):
-            sha256Hash = hashlib.sha256(open(pastaAnexos+"/"+item,"rb").read())
-            sha256Hashed = sha256Hash.hexdigest()
-            #print(item,sha256Hashed)
-            hashes[sha256Hashed]=pastaAnexos+"/"+item
+    if pastaAnexos is not None:
+        for root, dir, files in os.walk(pastaAnexos):
+            print(root)
+
+            for item in fnmatch.filter(files, "*"):
+                sha256Hash = hashlib.sha256(open(pastaAnexos+"/"+item,"rb").read())
+                sha256Hashed = sha256Hash.hexdigest()
+                #print(item,sha256Hashed)
+                hashes[sha256Hashed]=pastaAnexos+"/"+item
     
    
     createContactPage(pastaRelatorios,contacts)
@@ -693,13 +694,72 @@ def createReports(pastaAnexos,pastaRelatorios,chats,contacts):
         createChatHTML(pastaRelatorios,chat,contacts,hashes)
     print("Total de mensagens extraidas",totmsgs)
 
-def main():
+
+def getDB(caminhoIndexedDB,tipo):
+    if tipo == "firefox":
+        indexedDB = loadDbFirefox(caminhoIndexedDB)
+    elif tipo == "chrome":
+        blob_folder_path = caminhoIndexedDB.replace(".leveldb", ".blob")
+        if os.path.exists(blob_folder_path):
+            indexedDB = loadDb(caminhoIndexedDB, blob_folder_path)
+        else:
+            indexedDB = loadDb(caminhoIndexedDB, None)
+    return indexedDB
+
+
+def getEncryptedMessage(caminhoParent):
+    
+    for p in Path(caminhoParent).iterdir():
+        if 'leveldb' in p.name:
+            tipo = 'chrome'
+            caminhoIndexedDB = str(p)
+        elif '++' in p.name:
+            tipo = 'firefox'
+            caminhoIndexedDB = str(p)   
+    
+
+    indexedDB = getDB(caminhoIndexedDB,tipo)
+    if "model-storage" not in indexedDB:
+       return None
+    print("Inicio do parsing")
+    db_model = indexedDB["model-storage"]
+    messages=db_model["message"]
+    
+    for record in messages.iterate_records(bad_deserializer_data_handler=error_handler):
+        if record.value is None or "t" not in record.value or "rowId" not in record.value:
+            continue
+        message=getMessage(record.value,None)
+        if "encData" in message and "_data" in message["encData"]:
+            if len(message["encData"]["_data"])>200:
+                return message["encData"], indexedDB
+    return None
+            
+    
+    
+    
+
+
+def main(caminhoBase, pastaAnexos, pastaRelatorios, indexedDB, aesKey):
+
+    global basepath
+    basepath = caminhoBase
+
+    Path(pastaRelatorios).mkdir(parents=True, exist_ok=True)
+
+    # Extract and process chats/contacts
+    chats, contacts = parseChats(indexedDB, aesKey)
+    
+    createReports(pastaAnexos, pastaRelatorios, chats, contacts)
+
+
+if __name__ == "__main__":
+
     parser = argparse.ArgumentParser(
         description="Processamento de IndexedDB para chats de navegadores",
         # Use Portuguese for consistency with variable names like 'pastaAnexos'
         epilog="Exemplo: script.py pasta_anexos relatorios caminho_indexeddb tipo [hex_key]"
     )
-    
+
     # Required positional arguments
     parser.add_argument('pastaAnexos', help='Diretório de anexos')
     parser.add_argument('pastaRelatorios', help='Pasta para salvar os relatórios')
@@ -710,48 +770,35 @@ def main():
         choices=['firefox', 'chrome'],
         help="Tipo de navegador ('firefox' ou 'chrome')"
     )
-    
+
+
     # Argumento opcional com sinalizador --aeskey
     def parse_aes_key(key_str):
         if key_str is None:
-            return None # Permite omitir a chave
+            return None  # Permite omitir a chave
         try:
             return bytes.fromhex(key_str)
         except ValueError:
             raise argparse.ArgumentTypeError("Chave AES deve ser uma string hexadecimal válida")
-    
+
+
     parser.add_argument(
         '--aesKey',
-        dest='aesKey',  
+        dest='aesKey',
         default=None,
         type=parse_aes_key,
         help="Chave de criptografia em formato hexadecimal (opcional)"
     )
 
     args = parser.parse_args()
-    
+
     pastaAnexos = args.pastaAnexos
     pastaRelatorios = args.pastaRelatorios
     caminhoIndexedDB = args.caminhoIndexedDB
     tipo = args.tipo  # Already lowercase via lambda conversion
     aesKey = args.aesKey  # Now properly converted to bytes or None
 
-    Path(pastaRelatorios).mkdir(parents=True, exist_ok=True)
-    
-    if tipo == "firefox":
-        indexedDB = loadDbFirefox(caminhoIndexedDB)
-    elif tipo == "chrome":
-        blob_folder_path = caminhoIndexedDB.replace(".leveldb", ".blob")
-        if os.path.exists(blob_folder_path):
-            indexedDB = loadDb(caminhoIndexedDB, blob_folder_path)
-        else:
-            indexedDB = loadDb(caminhoIndexedDB, None)
-
-    # Extract and process chats/contacts
-    chats, contacts = parseChats(indexedDB, aesKey)
-    
-    createReports(pastaAnexos, pastaRelatorios, chats, contacts)
-
-if __name__ == "__main__":
-    main()
+    indexedDB = getDB(caminhoIndexedDB, tipo)
+    caminhoBase = '.'
+    main(caminhoBase, pastaAnexos, pastaRelatorios, indexedDB, aesKey)
 
