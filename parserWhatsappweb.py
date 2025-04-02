@@ -138,9 +138,12 @@ def getMessage(rawData,aesKey,quoted=False):
         #print("dados cifrados",message["encData"])
         message["decData"]=None
         if aesKey is not None and not quoted:
-            message["decData"]=AESDecrypt(aesKey,message["encData"]["_data"],bytes(message["encData"]["iv"]))
-            message2,type=blackboxprotobuf.decode_message(message["decData"],type_prot)
-            message["decData"]=message2
+            try: #Patch de problema ao decodificar algumas mensagens
+                message["decData"]=AESDecrypt(aesKey,message["encData"]["_data"],bytes(message["encData"]["iv"]))
+                message2,type=blackboxprotobuf.decode_message(message["decData"],type_prot)
+                message["decData"]=message2
+            except Exception as e:
+                print('Error: ',e)
             
 
     if "author" in rawData:
