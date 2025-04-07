@@ -14,7 +14,7 @@ import base64
 import sys
 import re
 import mozidbedit.mozidbedit.mozidb as mozidb
-from parserWhatsappweb import loadDb,loadDbFirefox
+from parserWhatsappweb import loadDb,loadDbFirefox, error_handler
 
 
 def strings(content,min=4):
@@ -60,47 +60,48 @@ def decriptyFiles(indexedDB,hashes,pasta2):
     values=[]
     #aeskey=b"\x01\x0B\x10\x06\x10\x11\xA0\x74\x73\x48\xEA\x17\x52\xD7\x84\x28\xD0\xBF\xD3\xC4\xAF\x0D\x27\xC0\x42\x20\x91\xEE\x64\xDE\xA8\xE4\x52\xCA\xB4\xCA\x5B\x2C\xB4\x22\x2E\x5D\xAF\x01\x3D\x1B\xDF\x71\xBD\xAB\xCE\x7B\xB8\x75\x29\x27\x4F\x34\x7B\x02\x7B\x02\xA0\x00\x00\x00"
     print("Total",len(hashes.keys()))
-    for record in db_model["message"].iterate_records():
-        #print(record)
-        if record.value is None:
-            continue
-                 
+    if "message" in db_model:
+        for record in db_model["message"].iterate_records(bad_deserializer_data_handler=error_handler):
+            #print(record)
+            if record.value is None:
+                continue
+                    
 
-        values.append(record.value)
-        if "quotedMsg" in record.value and isinstance(record.value["quotedMsg"], dict):
-            values.append(record.value["quotedMsg"])
-       
-        if "thumbnailEncSha256" in record.value and isinstance(record.value["thumbnailEncSha256"], str):
+            values.append(record.value)
+            if "quotedMsg" in record.value and isinstance(record.value["quotedMsg"], dict):
+                values.append(record.value["quotedMsg"])
+        
+            if "thumbnailEncSha256" in record.value and isinstance(record.value["thumbnailEncSha256"], str):
 
-            if "thumbnail" in record.value and isinstance(record.value["thumbnail"],str):
-                thumb=base64.b64decode(record.value["thumbnail"])
-                encFilehash=base64.b64decode(record.value["thumbnailEncSha256"])
-                if len(thumb)>0 and pasta2 is not None:
-                    open(pasta2+"/thumb_"+encFilehash.hex()+".jpg","wb").write(thumb)
-                    continue
-            
-            values.append({"mediaKey":record.value["mediaKey"],
-                           "type":record.value["type"]+" Thumb",
-                           "encFilehash":record.value["thumbnailEncSha256"],
-                           "filehash":record.value["thumbnailSha256"],
-                           "org":record.value})
-            
-    
-    for record in db_model["profile-pic-thumb"].iterate_records():
-        if record.value is None:
-            continue
-        if "filehash" in record.value and isinstance(record.value["filehash"],str):
-            values.append({"filehash":record.value["filehash"]})
-            
+                if "thumbnail" in record.value and isinstance(record.value["thumbnail"],str):
+                    thumb=base64.b64decode(record.value["thumbnail"])
+                    encFilehash=base64.b64decode(record.value["thumbnailEncSha256"])
+                    if len(thumb)>0 and pasta2 is not None:
+                        open(pasta2+"/thumb_"+encFilehash.hex()+".jpg","wb").write(thumb)
+                        continue
+                
+                values.append({"mediaKey":record.value["mediaKey"],
+                            "type":record.value["type"]+" Thumb",
+                            "encFilehash":record.value["thumbnailEncSha256"],
+                            "filehash":record.value["thumbnailSha256"],
+                            "org":record.value})
+                
+    if "profile-pic-thumb" in db_model:  
+        for record in db_model["profile-pic-thumb"].iterate_records(bad_deserializer_data_handler=error_handler):
+            if record.value is None:
+                continue
+            if "filehash" in record.value and isinstance(record.value["filehash"],str):
+                values.append({"filehash":record.value["filehash"]})
+                
 
-
-    for record in db_model["recent-stickers"].iterate_records():
-        if record.value is None or "sticker" not in record.value:
-            continue
-        data= record.value["sticker"]
-        if "filehash" in data and isinstance(data["filehash"],str):
-            values.append(data)
-            #print("aee",data)
+    if "recent-stickers" in db_model:
+        for record in db_model["recent-stickers"].iterate_records(bad_deserializer_data_handler=error_handler):
+            if record.value is None or "sticker" not in record.value:
+                continue
+            data= record.value["sticker"]
+            if "filehash" in data and isinstance(data["filehash"],str):
+                values.append(data)
+                #print("aee",data)
     
     nerros=0
     search=set()

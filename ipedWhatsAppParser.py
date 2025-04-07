@@ -2,11 +2,28 @@ import os
 from pathlib import Path
 from decrypt_all_files import decriptyFiles,load_enc_files
 from parserWhatsappweb import loadDb,loadDbFirefox,parseChats,createReports
+import json
 import argparse
-def _lazyLoad():
-    global jFile,IPEDSource,FileOutputStream,BufferedOutputStream,IOUtil,IPEDSearcher
-    from jnius import autoclass
+import re
+aes_keys = {}
 
+
+def init_aes_keys():
+    global aes_keys
+    # Adicione as chaves AES aqui, se necessário
+    # Exemplo: aes_keys["caminho/para/o/arquivo"] = "chave_aes"
+    temp={}
+    temp["\\Users\\Simone\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\IndexedDB\\https_web.whatsapp.com"] = "582e12c2003f5066987060e30b65a965"
+    temp["Users/10526/AppData/Local/Google/Chrome/User Data/Default/IndexedDB/https_web.whatsapp.com"] = "33d145ada7c29ebe146d5052131da302"
+    
+    for key_path in temp.keys():
+        aes_keys[key_path.replace("\\","/").lower()] = temp[key_path]
+        aes_keys[key_path.replace("/","\\",).lower()] = temp[key_path]
+    print("AES keys initialized:", aes_keys)    
+
+def _lazyLoad():
+    from jnius import autoclass
+    global jFile, IPEDSource, FileOutputStream, BufferedOutputStream, IOUtil, IPEDSearcher
     #importing java classes
     jFile = autoclass('java.io.File')
     IPEDSource = autoclass("iped.engine.data.IPEDSource")
@@ -20,14 +37,21 @@ def _lazyLoad():
 
 def exportHashes(iped,hashes:set,saida:Path):
     print("buscando arquivos")
+    if len(hashes)==0:
+        print("Nenhum arquivo encontrado")
+        return
     searcher = IPEDSearcher(iped)
     searcher.setQuery(str(hashes).replace("{","sha\\-256:(").replace("}",")"))
     ids = searcher.search().getIds()
     print(f"Exportando {len(ids)} arquivos")
     for id in ids:
-        item = iped.getItemByID(id)
+        
+        try:
+            item = iped.getItemByID(id)
+        except:
+            continue
         inputStream = item.getBufferedInputStream()
-        path_saida=Path(saida,item.getName())
+        path_saida=Path(saida,item.getHash())
         outputStream = BufferedOutputStream(FileOutputStream(jFile(str(path_saida))))
         try:
             IOUtil.copyInputToOutputStream(inputStream, outputStream)
@@ -65,6 +89,16 @@ def exportDB(instalation,path_saida):
             inputStream.close()
             outputStream.close()
 
+def getAesKey(path):
+    match = re.search(r"(users.*?whatsapp\.com)", path.lower())
+    if match:
+        path = match.group(1)
+    print(path,aes_keys)
+    for key_path in aes_keys.keys():
+        if path.lower().replace("\\","/") in key_path:
+            return bytes.fromhex(aes_keys[key_path])
+    print("Não Achou",path.lower().replace("\\","/"))
+    return None
 
 def get_parent_folder(file_path):
     p = Path(file_path)
@@ -75,6 +109,19 @@ def get_parent_folder(file_path):
         whatsapp_folder=whatsapp_folder.parent
     return  None
 
+def safe_json(obj):
+    if isinstance(obj, dict):
+        return {k: safe_json(v) for k, v in obj.items() if v is not None and str(type(v)) != "<class '_Undefined'>"}
+    elif isinstance(obj, list):
+        return [safe_json(i) for i in obj]
+    elif str(type(obj)) == "<class '_Undefined'>":
+        return None
+    elif isinstance(obj, object):
+        return str(obj)
+    else:
+        return obj
+
+
 def main(iped_path,case_folder,output,aesKey=None):
     os.environ['CLASSPATH'] = iped_path
     _lazyLoad()
@@ -84,8 +131,9 @@ def main(iped_path,case_folder,output,aesKey=None):
     searcher = IPEDSearcher(iped)
 
     # search for recovered files
-    searcher.setQuery(f'path:"web.whatsapp" AND isDir:false')
+    searcher.setQuery(f'path:"web.whatsapp" AND isDir:false AND -deleted:true AND -carved:true AND -subitem:true AND -fileFragment:true')
     ids = searcher.search().getIds()
+
 
 
     instalations=dict()
@@ -135,11 +183,22 @@ def main(iped_path,case_folder,output,aesKey=None):
         path_report=Path(path_saida,"reports")
         path_report.mkdir(parents=True, exist_ok=True)
         print("Parsing chats")
+        aesKey=getAesKey(str(first_item.getPath()))
+        #input("Pressione Enter para continuar...")
+        print("Chave:",aesKey)
         chats, contacts = parseChats(indexedDB,aesKey)
+        report_json=safe_json({"chats":chats,"contacts":contacts})
+        with open(Path(path_saida, "relatorio.json"), "w", encoding="utf-8") as f:
+            json.dump(report_json, f, ensure_ascii=False, indent=4)
+
+
         print("Creating reporting")
         createReports(str(path_dec_files), str(path_report), chats, contacts)
 
+        
+
 if __name__ == "__main__":
+    init_aes_keys()
     parser = argparse.ArgumentParser(
         description="Processamento do whatsapp web em casos iped",
         # Use Portuguese for consistency with variable names like 'pastaAnexos'

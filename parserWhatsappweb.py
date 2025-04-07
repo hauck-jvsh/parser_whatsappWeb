@@ -138,9 +138,12 @@ def getMessage(rawData,aesKey,quoted=False):
         #print("dados cifrados",message["encData"])
         message["decData"]=None
         if aesKey is not None and not quoted:
-            message["decData"]=AESDecrypt(aesKey,message["encData"]["_data"],bytes(message["encData"]["iv"]))
-            message2,type=blackboxprotobuf.decode_message(message["decData"],type_prot)
-            message["decData"]=message2
+            try:
+                message["decData"]=AESDecrypt(aesKey,message["encData"]["_data"],bytes(message["encData"]["iv"]))
+                message2,type=blackboxprotobuf.decode_message(message["decData"],type_prot)
+                message["decData"]=message2
+            except:
+                pass
             
 
     if "author" in rawData:
@@ -168,8 +171,8 @@ def getIndexedDB(caminhoIndexedDB):
       indexedDB = loadDbFirefox(caminhoIndexedDB)
       return indexedDB
 
-def getEncryptedMessage(caminhoIndexedDB):
-    indexedDB=getIndexedDB(caminhoIndexedDB)
+def getEncryptedMessage_DB(indexedDB):
+    
     if "model-storage" not in indexedDB:
         return None
     db_model=indexedDB["model-storage"]
@@ -179,8 +182,9 @@ def getEncryptedMessage(caminhoIndexedDB):
         if record.value is None or "t" not in record.value or "rowId" not in record.value:
             continue
         message=getMessage(record.value,None)
-        if "encData" in message and "_data" in  message["encData"] and len(message["encData"]["_data"])>200:
+        if "encData" in message and "_data" in  message["encData"] and len(message["encData"]["_data"])>200 and len(message["encData"]["_data"])<1000:
             return message["encData"]
+    return None
 
 def parseChats(indexedDB,aesKey:bytes|None=None):
     if "model-storage" not in indexedDB:
@@ -189,94 +193,96 @@ def parseChats(indexedDB,aesKey:bytes|None=None):
     db_model=indexedDB["model-storage"]
     chats={}
     contacts={}
-    for record in db_model["chat"].iterate_records():
-         if record.value is None:
-            continue
-         chats[record.value["id"]]={
-             "id":record.value["id"],
-             "name":getValue(record.value,"name"),
-             "chat": {}
-         }
-         contacts[record.value["id"].split("@")[0]]={
-             "id":record.value["id"],
-             "name":getValue(record.value,"name"),
-             "isAddressBookContact":0
-         }
-    for record in db_model["contact"].iterate_records():
-        if record.value is None:
-            continue
-       
-        name=None
-
-        if name is None and "name" in record.value:
-            name=record.value["name"]
-        if name is None and "pushname" in record.value:
-            name=record.value["pushname"]
-        
-        if name is not None:
-            
-            if record.value["id"] in contacts:
-                if contacts[record.value["id"]]["name"] is not None:
-                    contacts[record.value["id"]]["name"]=name
-                    contacts[record.value["id"]]["isAddressBookContact"]=getValue(record.value,"isAddressBookContact")
-                    
-            else:
-                contacts[record.value["id"].split("@")[0]]={
-                    "id":record.value["id"],
-                    "name":name
-                }
-                contacts[record.value["id"].split("@")[0]]["isAddressBookContact"]=getValue(record.value,"isAddressBookContact")
-            
-            phoneNumber=getValue(record.value,"phoneNumber")
-            if phoneNumber is not None:
-                phoneNumber=phoneNumber.split("@")[0]
-               
-                if phoneNumber in contacts:
-                     contacts[phoneNumber]["name"]=name
-                     contacts[phoneNumber]["phoneNumber"]=phoneNumber
-                else:
-                     contacts[phoneNumber]={
-                        "id":record.value["id"],
-                        "name":name,
-                        "phoneNumber":phoneNumber
-                        }
-                contacts[phoneNumber]["isAddressBookContact"]=getValue(record.value,"isAddressBookContact")
-
-
-    for record in db_model["profile-pic-thumb"].iterate_records():
-        if record.value is None:
-            continue
-        contactid=record.value["id"].split("@")[0]
-        if contactid not in contacts:
-            contacts[contactid]={
+    if "chat" in db_model:
+        for record in db_model["chat"].iterate_records(bad_deserializer_data_handler=error_handler):
+            if record.value is None:
+                continue
+            chats[record.value["id"]]={
                 "id":record.value["id"],
-                "name":None,
-                "isAddressBookContact":None
+                "name":getValue(record.value,"name"),
+                "chat": {}
             }
-            
-        if "filehash" in record.value and isinstance(record.value["filehash"],str):
-            contacts[contactid]["avatarHash"]=record.value["filehash"]
-
-    
-   
-    
-    messages=db_model["message"]
-    
-    for record in messages.iterate_records(bad_deserializer_data_handler=error_handler):
-        if record.value is None or "t" not in record.value or "rowId" not in record.value:
-            continue
-        message=getMessage(record.value,aesKey)
-        chat_id=message["chat_id"]
-
-        if chat_id in chats:
-            chats[chat_id]["chat"][str(record.value["rowId"])]=message
-        else:
-            chats[chat_id]= {
-                "id":chat_id,
-                "name":chat_id,
-                "chat":{str(record.value["rowId"]): message}
+            contacts[record.value["id"].split("@")[0]]={
+                "id":record.value["id"],
+                "name":getValue(record.value,"name"),
+                "isAddressBookContact":0
             }
+    if "contact" in db_model:
+        for record in db_model["contact"].iterate_records(bad_deserializer_data_handler=error_handler):
+            if record.value is None:
+                continue
         
+            name=None
+
+            if name is None and "name" in record.value:
+                name=record.value["name"]
+            if name is None and "pushname" in record.value:
+                name=record.value["pushname"]
+            
+            if name is not None:
+                
+                if record.value["id"] in contacts:
+                    if contacts[record.value["id"]]["name"] is not None:
+                        contacts[record.value["id"]]["name"]=name
+                        contacts[record.value["id"]]["isAddressBookContact"]=getValue(record.value,"isAddressBookContact")
+                        
+                else:
+                    contacts[record.value["id"].split("@")[0]]={
+                        "id":record.value["id"],
+                        "name":name
+                    }
+                    contacts[record.value["id"].split("@")[0]]["isAddressBookContact"]=getValue(record.value,"isAddressBookContact")
+                
+                phoneNumber=getValue(record.value,"phoneNumber")
+                if phoneNumber is not None:
+                    phoneNumber=phoneNumber.split("@")[0]
+                
+                    if phoneNumber in contacts:
+                        contacts[phoneNumber]["name"]=name
+                        contacts[phoneNumber]["phoneNumber"]=phoneNumber
+                    else:
+                        contacts[phoneNumber]={
+                            "id":record.value["id"],
+                            "name":name,
+                            "phoneNumber":phoneNumber
+                            }
+                    contacts[phoneNumber]["isAddressBookContact"]=getValue(record.value,"isAddressBookContact")
+
+    if "profile-pic-thumb" in db_model:
+        for record in db_model["profile-pic-thumb"].iterate_records(bad_deserializer_data_handler=error_handler):
+            if record.value is None:
+                continue
+            contactid=record.value["id"].split("@")[0]
+            if contactid not in contacts:
+                contacts[contactid]={
+                    "id":record.value["id"],
+                    "name":None,
+                    "isAddressBookContact":None
+                }
+                
+            if "filehash" in record.value and isinstance(record.value["filehash"],str):
+                contacts[contactid]["avatarHash"]=record.value["filehash"]
+
+        
+   
+    if "message" in db_model:
+        messages=db_model["message"]
+        
+        for record in messages.iterate_records(bad_deserializer_data_handler=error_handler):
+            if record.value is None or "t" not in record.value or "rowId" not in record.value:
+                continue
+            message=getMessage(record.value,aesKey)
+            chat_id=message["chat_id"]
+
+            if chat_id in chats:
+                chats[chat_id]["chat"][str(record.value["rowId"])]=message
+            else:
+                chats[chat_id]= {
+                    "id":chat_id,
+                    "name":chat_id,
+                    "chat":{str(record.value["rowId"]): message}
+                }
+            
                 
 
         
@@ -719,25 +725,13 @@ def getEncryptedMessage(caminhoParent):
     
 
     indexedDB = getDB(caminhoIndexedDB,tipo)
-    if "model-storage" not in indexedDB:
-       return None
-    print("Inicio do parsing")
-    db_model = indexedDB["model-storage"]
-    messages=db_model["message"]
     
-    for record in messages.iterate_records(bad_deserializer_data_handler=error_handler):
-        if record.value is None or "t" not in record.value or "rowId" not in record.value:
-            continue
-        message=getMessage(record.value,None)
-        if "encData" in message and "_data" in message["encData"]:
-            if len(message["encData"]["_data"])>200:
-                return message["encData"], indexedDB
-    return None
+    return getEncryptedMessage_DB(indexedDB),indexedDB
             
     
     
     
-
+basepath="./"
 
 def main(caminhoBase, pastaAnexos, pastaRelatorios, indexedDB, aesKey):
 
