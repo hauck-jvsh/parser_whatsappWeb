@@ -711,7 +711,7 @@ def getDB(caminhoIndexedDB,tipo):
 
 
 def getEncryptedMessage(caminhoParent):
-    
+    print('getEncryptedMessage, caminhoParent: ', caminhoParent)
     for p in Path(caminhoParent).iterdir():
         if 'leveldb' in p.name:
             tipo = 'chrome'
@@ -720,7 +720,7 @@ def getEncryptedMessage(caminhoParent):
             tipo = 'firefox'
             caminhoIndexedDB = str(p)   
     
-
+    print(caminhoIndexedDB)
     indexedDB = getDB(caminhoIndexedDB,tipo)
     if "model-storage" not in indexedDB:
        return None
